@@ -38,6 +38,7 @@ def process_csv(file_path, user_email, conn, start_row=25):
                 continue
             
             # 1. Check Annotation
+            # note for IRR
             for field in getRequiredFields(user_email):
                 if getItem(row, field) is None:
                     print(f"[MISSING FIELD] {user_email} | field={field} | row={row}")
@@ -218,7 +219,7 @@ def get_alias_from_email(email, conn):
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT Alias
+        SELECT Alias, PairEmail
         FROM "User"
         WHERE Email = ?
     """, (email,))
@@ -243,51 +244,93 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
             print(f"[INFO] No missing TCUs for {user_email}")
             return
 
-        alias = get_alias_from_email(user_email, conn)
+        alias, pairemail = get_alias_from_email(user_email, conn)
         user_dir = os.path.join(output_sub, alias)
         os.makedirs(user_dir, exist_ok=True)
 
         combined_output_file = os.path.join(user_dir, "combined_all.csv")
+        pair_output_file = os.path.join(user_dir, f"{pairemail}_irr.csv")
 
         # 1. Load existing TCUIDs (ONLY ONCE)
-        existing_tcuids = set()
+        existing_tcuids_combined = set()
+        existing_tcuids_irr = set()
 
         if os.path.exists(combined_output_file):
             try:
                 with open(combined_output_file, newline='', encoding="utf-8") as f:
                     reader = csv.reader(f)
                     for row in reader:
-                        existing_tcuids.add(row[getindex("tcu_id")])
+                        existing_tcuids_combined.add(row[getindex("tcu_id")])
             except Exception as e:
                 print(f"[READ EXISTING ERROR] user={user_email} | {e}")
 
-        # 2. Append only NEW rows
+        if os.path.exists(pair_output_file):
+            try:
+                with open(pair_output_file, newline='', encoding="utf-8") as f:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        existing_tcuids_irr.add(row[getindex("tcu_id")])
+            except Exception as e:
+                print(f"[READ EXISTING ERROR] user={user_email} | {e}")
+
+
         file_exists = os.path.exists(combined_output_file)
         if not file_exists:
-            print("No existing combined_all.csv found")
-            print("[EXPORT ERROR] No existing combined_all.csv found ")
+            print("No existing " + combined_output_file + " found")
+            print("Creating new " + combined_output_file)
+            with open(combined_output_file, "w", newline='', encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "original_row_number", "video_url", "meeting_date",
+                    "ai_mention_timestamp", "segment_start", "segment_end",
+                    "segment_transcript", "tcu_id", "tcu_transcript",
+                    "tcu_start", "tcu_end", "speaker_role", "speaker_gender",
+                    "stance", "vocal_tone", "facial_expression", "coder_notes"
+                ])
         
-        with open(combined_output_file, "a", newline='', encoding="utf-8") as f:
-            writer = csv.writer(f)
+        file_exists = os.path.exists(pair_output_file)
+        if not file_exists:
+            print("No existing " + pair_output_file + " found")
+            print("Creating new " + pair_output_file)
+            with open(pair_output_file, "w", newline='', encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "original_row_number", "video_url", "meeting_date",
+                    "ai_mention_timestamp", "segment_start", "segment_end",
+                    "segment_transcript", "tcu_id", "tcu_transcript",
+                    "tcu_start", "tcu_end", "speaker_role", "speaker_gender",
+                    "stance", "vocal_tone", "facial_expression", "coder_notes"
+                ])
+        
+        
+        # 2. Append only NEW rows
+        with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined, \
+     open(pair_output_file, "a", newline='', encoding="utf-8") as f_pair:
 
-            new_count = 0
+            writer_combined = csv.writer(f_combined)
+            writer_pair = csv.writer(f_pair)
 
-            for i, row in enumerate(rows, start=1):
-                if i < 25:
-                    continue
-                tcu_id = row[getindex("tcu_id")] 
+            new_combined = 0
+            new_pair = 0
 
-                if tcu_id in existing_tcuids:
-                    continue  
+            for row in rows:
+                tcu_id = row[getindex("tcu_id")]
+                email = row[getindex("email")]
 
-                try:
-                    writer.writerow(row)
-                    existing_tcuids.add(tcu_id)
-                    new_count += 1
-                except Exception as e:
-                    print(f"[CSV WRITE ERROR] user={user_email} | row={row} | {e}")
+                # write to combined
+                if tcu_id not in existing_tcuids_combined:
+                    writer_combined.writerow(row)
+                    existing_tcuids_combined.add(tcu_id)
+                    new_combined += 1
 
-        print(f"[INFO] {user_email} | appended {new_count} new TCUs")
+                # write to pair file
+                if email == pairemail and tcu_id not in existing_tcuids_irr:
+                    writer_pair.writerow(row)
+                    existing_tcuids_irr.add(tcu_id)
+                    new_pair += 1
+
+        print(f"[INFO] {user_email} | appended {new_combined} new complete TCUs")
+        print(f"[INFO] {user_email} | appended {new_pair} new IRR TCUs")
 
     except Exception as e:
         print(f"[EXPORT ERROR] user={user_email} | {e}")
