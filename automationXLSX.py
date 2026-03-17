@@ -74,40 +74,40 @@ def process_csv(file_path, user_email, conn, start_row=25):
                 print(f"[INVALID DURATION] {user_email} | duration={duration} | row={row}")
                 continue
 
-            # 4. Ensure VideoSegment exists
+            # 4. Ensure VideoSegment exists Ignored since we populate videos first now
 
             video_id = extract_video_id(getItem(row, "video_url"))
             mention_timestamp = getItem(row, "ai_mention_timestamp")
             videoseg_id = build_videoseg_id(video_id, mention_timestamp)
-            try: 
-                cursor.execute("""
-                    INSERT OR IGNORE INTO VideoSegment (
-                        ID,
-                        video_urlID,
-                        meeting_date,
-                        State,
-                        County,
-                        original_row_number,
-                        ai_mention_timestamp,
-                        segment_start,
-                        segment_end,
-                        segment_transcript
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    videoseg_id,
-                    video_id,
-                    getItem(row, "meeting_date"),
-                    getItem(row, "State"),
-                    getItem(row, "County"),
-                    int(getItem(row, "original_row_number")) if getItem(row, "original_row_number") else None,
-                    getItem(row, "ai_mention_timestamp"),
-                    getItem(row, "actual_segment_start_time"),
-                    getItem(row, "actual_segment_end_time"),
-                    getItem(row, "transcript_for_actual_segment")
-                ))
-            except sqlite3.Error as e:
-                print(f"[DB ERROR - VideoSegment INSERT] {user_email} | VideoSegment={videoseg_id} | {e}")
-                continue
+            # try: 
+            #     cursor.execute("""
+            #         INSERT OR IGNORE INTO VideoSegment (
+            #             ID,
+            #             video_urlID,
+            #             meeting_date,
+            #             State,
+            #             County,
+            #             original_row_number,
+            #             ai_mention_timestamp,
+            #             segment_start,
+            #             segment_end,
+            #             segment_transcript
+            #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            #     """, (
+            #         videoseg_id,
+            #         video_id,
+            #         getItem(row, "meeting_date"),
+            #         getItem(row, "State"),
+            #         getItem(row, "County"),
+            #         int(getItem(row, "original_row_number")),
+            #         getItem(row, "ai_mention_timestamp"),
+            #         getItem(row, "actual_segment_start_time"),
+            #         getItem(row, "actual_segment_end_time"),
+            #         getItem(row, "transcript_for_actual_segment")
+            #     ))
+            # except sqlite3.Error as e:
+            #     print(f"[DB ERROR - VideoSegment INSERT] {user_email} | VideoSegment={videoseg_id} | {e}")
+            #     continue
             
             # 5. Ensure TCU exists
             try:

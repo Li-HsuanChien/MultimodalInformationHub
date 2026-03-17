@@ -1,14 +1,6 @@
 import sqlite3
 
-
 DB_PATH = "annotation.db"
-""" Kelly/ 
-    Xinyu/ 
-    Swara/
-    Luke/ 
-    James/
-
-"""
 
 conn = sqlite3.connect(DB_PATH)
 users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
@@ -30,4 +22,5 @@ def insert_users(users):
             VALUES (?, ?, ?)
         """, (u["email"], u["alias"], u["pair_email"]))
     conn.commit()
-    
+
+

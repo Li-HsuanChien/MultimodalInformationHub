@@ -11,7 +11,7 @@ CREATE TABLE VideoSegment (
     video_urlID TEXT,     -- example: 5bzXa6fx57o
     meeting_date DATE,    -- normalized date
 
-    State TEXT,
+    "State" TEXT,
     County TEXT,
 
     original_row_number INTEGER,

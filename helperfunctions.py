@@ -12,7 +12,7 @@ def build_videoseg_id(video_id, timestamp):
     return f"{video_id}-ai_{timestamp}"
 
 def getindex(colName):
-    COL_IDX = {
+    User_Input_COL_IDX = {
         "original_row_number": 0,
         "video_url": 1,
         "meeting_date": 2,
@@ -33,7 +33,7 @@ def getindex(colName):
         "State": 17,
         "County": 18,
     }    
-    return COL_IDX[colName]
+    return User_Input_COL_IDX[colName]
 
 def getItem(row, colName):
     if getindex(colName) < len(row):
@@ -48,4 +48,4 @@ def getRequiredFields(user_email):
         "sks7267@psu.edu": ["facial_expression"],
         "lxb5609@psu.edu": ["speaker_role", "speaker_gender"]
     }
-    return requiredFields.get(user_email, [])
+    return
