@@ -336,3 +336,11 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
 
 
 
+"""Todo: 
+    Test each module function
+    activate sql db
+    implement csv file to data branch
+    implement data to sql branch
+    implement main function and do integration test
+    set up cloud retrieval of csv and write
+"""
