@@ -38,7 +38,12 @@ def process_csv(file_path, user_email, conn, start_row=25):
                 continue
             
             # 1. Check Annotation
-            # note for IRR
+            # note for IRR 
+            """
+            Parrellel check, we check first commit or IRR comit
+            
+            
+            """
             for field in getRequiredFields(user_email):
                 if getItem(row, field) is None:
                     print(f"[MISSING FIELD] {user_email} | field={field} | row={row}")
