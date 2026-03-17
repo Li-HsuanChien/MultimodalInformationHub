@@ -7,77 +7,127 @@ DB_PATH = "annotation.db"
 conn = sqlite3.connect(DB_PATH)
 
 
+def check_annotation_type(user_email, row):
+    for annotationtypeOption in ["common", "irr"]:
+        annotationtype = annotationtypeOption
+
+        for field in getRequiredFields(user_email, annotationtypeOption):
+            if getItem(row, field) is None:
+                annotationtype = "None"
+                continue
+
+def check_duplicate_annotation(user_email, tcu_id, cursor):
+    try:
+        cursor.execute("""
+            SELECT 1 FROM Annotation
+            WHERE Email = ? AND TCUID = ?
+        """, (user_email, tcu_id))
+
+        if cursor.fetchone():
+            return False
+        return True
+    except sqlite3.Error as e:
+        print(f"[DB ERROR - Annotation CHECK] {user_email} | TCU={tcu_id} | {e}")
+        return False
+def validate_duration(user_email, row):
+    start_sec = time_to_seconds(getItem(row, "tcu_start"))
+    end_sec = time_to_seconds(getItem(row, "tcu_end"))
+
+    if start_sec is None or end_sec is None:
+        print(f"[INVALID TIME FORMAT] {user_email} | row={row}")
+        return False
+
+    duration = end_sec - start_sec
+
+    if duration <= 0 or duration > 60:
+        print(f"[INVALID DURATION] {user_email} | duration={duration} | row={row}")
+        return False
+    return True
+
+def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
+    try:
+        cursor.execute("""
+            INSERT OR IGNORE INTO TCU (
+                TCUID, VIDEOSEGID,
+                tcu_start, tcu_end, tcu_transcript
+            ) VALUES (?, ?, ?, ?, ?)
+        """, (
+            tcu_id,
+            videoseg_id,
+            getItem(row, "tcu_start"),
+            getItem(row, "tcu_end"),
+            getItem(row, "tcu_transcript")
+        ))
+        return True
+    except sqlite3.Error as e:
+        print(f"[DB ERROR - TCU INSERT] {user_email} | TCU={tcu_id} | {e}")
+        return False
+    
+def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
+    try:
+        cursor.execute("""
+            INSERT INTO Annotation (
+                AnnotationID,
+                TCUID,
+                Email,
+                speaker_gender,
+                stance,
+                vocal_tone,
+                facial_expression,
+                coder_notes,
+                annotationtype       
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            annotation_id,
+            tcu_id,
+            user_email,
+            getItem(row, "speaker_gender"),
+            getItem(row, "stance"),
+            getItem(row, "vocal_tone"),
+            getItem(row, "facial_expression"),
+            getItem(row, "coder_notes"),
+            annotationtype
+        ))
+
+    except sqlite3.IntegrityError as e:
+        print(f"[DB INTEGRITY ERROR] {user_email} | TCU={tcu_id} | {e}")
+
+    except sqlite3.Error as e:
+        print(f"[DB ERROR] {user_email} | TCU={tcu_id} | {e}")
+
 def process_csv(file_path, user_email, conn, start_row=25):
     cursor = conn.cursor()
-    """row structure: 
-            original_row_number	
-            video_url	
-            meeting_date
-            ai_mention_timestamp
-            segment_start
-            segment_end
-            segment_transcript
-            tcu_id
-            tcu_transcript
-            tcu_start
-            tcu_end
-            speaker_role
-            speaker_gender
-            stance
-            vocal_tone
-            facial_expression"""
-
     
     with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
         
-        
+        #check annotation type based on required fields for the user
 
+        
         for i, row in enumerate(reader, start=1):
             if i < start_row:
                 continue
             
             # 1. Check Annotation
             # note for IRR 
-            """
-            Parrellel check, we check first commit or IRR comit
+
+            annotationtype = check_annotation_type(user_email, row)
             
-            
-            """
-            for field in getRequiredFields(user_email):
-                if getItem(row, field) is None:
-                    print(f"[MISSING FIELD] {user_email} | field={field} | row={row}")
-                    continue
+            if annotationtype == "None":
+                print(f"[MISSING ANNOTATION] {user_email} | row={row}")
+                continue
           
             tcu_id = getItem(row, "tcu_id")
-            # 2. Check duplicate Annotation (Email, TCUID)
-            try:
-                    
-                cursor.execute("""
-                    SELECT 1 FROM Annotation
-                    WHERE Email = ? AND TCUID = ?
-                """, (user_email, tcu_id))
 
-                if cursor.fetchone():
-                    continue
-            except sqlite3.Error as e:
-                print(f"[DB ERROR - Annotation CHECK] {user_email} | TCU={tcu_id} | {e}")
+            # 2. Check duplicate Annotation (Email, TCUID)
+            
+            if not check_duplicate_annotation(user_email, tcu_id, cursor):
+                print(f"[DUPLICATE ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
                 continue
-             
             
             # 3. Validate duration (0 < duration <= 60)
 
-            start_sec = time_to_seconds(getItem(row, "tcu_start"))
-            end_sec = time_to_seconds(getItem(row, "tcu_end"))
-
-            if start_sec is None or end_sec is None:
-                print(f"[INVALID TIME FORMAT] {user_email} | row={row}")
-                continue
-
-            duration = end_sec - start_sec
-
-            if duration <= 0 or duration > 60:
-                print(f"[INVALID DURATION] {user_email} | duration={duration} | row={row}")
+            if not validate_duration(user_email, row):
                 continue
 
             # 4. Ensure VideoSegment exists Ignored since we populate videos first now
@@ -116,54 +166,11 @@ def process_csv(file_path, user_email, conn, start_row=25):
             #     continue
             
             # 5. Ensure TCU exists
-            try:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO TCU (
-                        TCUID, VIDEOSEGID,
-                        tcu_start, tcu_end, tcu_transcript
-                    ) VALUES (?, ?, ?, ?, ?)
-                """, (
-                    tcu_id,
-                    videoseg_id,
-                    getItem(row, "tcu_start"),
-                    getItem(row, "tcu_end"),
-                    getItem(row, "tcu_transcript")
-                ))
-
-            except sqlite3.Error as e:
-                print(f"[DB ERROR - TCU INSERT] {user_email} | TCU={tcu_id} | {e}")
+            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
                 continue
             # 6. Insert Annotation (ONLY annotation fields)
-            
             annotation_id = f"{tcu_id}_{user_email}"
-            try:
-                cursor.execute("""
-                    INSERT INTO Annotation (
-                        AnnotationID,
-                        TCUID,
-                        Email,
-                        speaker_gender,
-                        stance,
-                        vocal_tone,
-                        facial_expression,
-                        coder_notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    annotation_id,
-                    tcu_id,
-                    user_email,
-                    getItem(row, "speaker_gender"),
-                    getItem(row, "stance"),
-                    getItem(row, "vocal_tone"),
-                    getItem(row, "facial_expression"),
-                    getItem(row, "coder_notes")
-                ))
-  
-            except sqlite3.IntegrityError as e:
-                print(f"[DB INTEGRITY ERROR] {user_email} | TCU={tcu_id} | {e}")
-
-            except sqlite3.Error as e:
-                print(f"[DB ERROR] {user_email} | TCU={tcu_id} | {e}")
+            insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor)            
     conn.commit()
 
 
@@ -201,6 +208,7 @@ def get_unannotated_tcus(user_email, conn):
             LEFT JOIN Annotation a
                 ON t.TCUID = a.TCUID
                 AND a.Email = ?
+                AND t.annotationtype != 'irr'
             WHERE a.TCUID IS NULL
             ORDER BY vs.original_row_number, t.TCUID
         """, (user_email,))
@@ -222,24 +230,50 @@ def get_unannotated_tcus(user_email, conn):
     
 def get_alias_from_email(email, conn):
     cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT Alias, PairEmail
+            FROM "User"
+            WHERE Email = ?
+        """, (email,))
 
-    cursor.execute("""
-        SELECT Alias, PairEmail
-        FROM "User"
-        WHERE Email = ?
-    """, (email,))
+        result = cursor.fetchone()
 
-    result = cursor.fetchone()
+        if result is None:
+            raise ValueError(f"No user found for email: {email}")
 
-    if result is None:
-        raise ValueError(f"No user found for email: {email}")
+        return result[0], result[1]
+    except sqlite3.Error as e:
+        print(f"[DB ERROR - Get Alias] email={email} | {e}")
+        return None, None
+def create_file_if_not_exists(path):
+    file_exists = os.path.exists(path)
+    if not file_exists:
+        print("No existing " + path + " found")
+        print("Creating new " + path)
+        with open(path, "w", newline='', encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "original_row_number", "video_url", "meeting_date",
+                "ai_mention_timestamp", "segment_start", "segment_end",
+                "segment_transcript", "tcu_id", "tcu_transcript",
+                "tcu_start", "tcu_end", "speaker_role", "speaker_gender",
+                "stance", "vocal_tone", "facial_expression", "coder_notes"
+            ])
 
-    return result[0]
-
-
-import os
-import csv
-
+def get_existing_tcuids_for_file(file_path, user_email):
+    exisiting_id = set()
+    create_file_if_not_exists(file_path)
+    try:
+        with open(file_path, newline='', encoding="utf-8") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                exisiting_id.add(row[getindex("tcu_id")])
+        return exisiting_id
+    except Exception as e:
+        print(f"[READ EXISTING ERROR] user={user_email} file={file_path} | {e}")
+        return None
+    
 def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version2"):
     try:
         rows = get_unannotated_tcus(user_email, conn)
@@ -250,62 +284,22 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
             return
 
         alias, pairemail = get_alias_from_email(user_email, conn)
+        if alias is None or pairemail is None:
+            print(f"[ERROR] Could not retrieve alias/pair email for {user_email}")
+            return
+
         user_dir = os.path.join(output_sub, alias)
         os.makedirs(user_dir, exist_ok=True)
 
         combined_output_file = os.path.join(user_dir, "combined_all.csv")
         pair_output_file = os.path.join(user_dir, f"{pairemail}_irr.csv")
 
-        # 1. Load existing TCUIDs (ONLY ONCE)
-        existing_tcuids_combined = set()
-        existing_tcuids_irr = set()
+        existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email)
+        existing_tcuids_irr = get_existing_tcuids_for_file(pair_output_file, user_email)
 
-        if os.path.exists(combined_output_file):
-            try:
-                with open(combined_output_file, newline='', encoding="utf-8") as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        existing_tcuids_combined.add(row[getindex("tcu_id")])
-            except Exception as e:
-                print(f"[READ EXISTING ERROR] user={user_email} | {e}")
-
-        if os.path.exists(pair_output_file):
-            try:
-                with open(pair_output_file, newline='', encoding="utf-8") as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        existing_tcuids_irr.add(row[getindex("tcu_id")])
-            except Exception as e:
-                print(f"[READ EXISTING ERROR] user={user_email} | {e}")
-
-
-        file_exists = os.path.exists(combined_output_file)
-        if not file_exists:
-            print("No existing " + combined_output_file + " found")
-            print("Creating new " + combined_output_file)
-            with open(combined_output_file, "w", newline='', encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "original_row_number", "video_url", "meeting_date",
-                    "ai_mention_timestamp", "segment_start", "segment_end",
-                    "segment_transcript", "tcu_id", "tcu_transcript",
-                    "tcu_start", "tcu_end", "speaker_role", "speaker_gender",
-                    "stance", "vocal_tone", "facial_expression", "coder_notes"
-                ])
-        
-        file_exists = os.path.exists(pair_output_file)
-        if not file_exists:
-            print("No existing " + pair_output_file + " found")
-            print("Creating new " + pair_output_file)
-            with open(pair_output_file, "w", newline='', encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "original_row_number", "video_url", "meeting_date",
-                    "ai_mention_timestamp", "segment_start", "segment_end",
-                    "segment_transcript", "tcu_id", "tcu_transcript",
-                    "tcu_start", "tcu_end", "speaker_role", "speaker_gender",
-                    "stance", "vocal_tone", "facial_expression", "coder_notes"
-                ])
+        if existing_tcuids_combined is None or existing_tcuids_irr is None:
+            print(f"[ERROR] Could not read existing TCUIDs for {user_email}")
+            return
         
         
         # 2. Append only NEW rows

@@ -45,6 +45,7 @@ CREATE TABLE Annotation (
     vocal_tone TEXT,
     facial_expression TEXT,
     coder_notes TEXT,
+    annotationtype TEXT CHECK(annotationtype IN ('common', 'irr')) NOT NULL,
 
     FOREIGN KEY (TCUID) REFERENCES TCU(TCUID),
     FOREIGN KEY (Email) REFERENCES "User"(Email),

@@ -41,11 +41,18 @@ def getItem(row, colName):
     else:
         raise IndexError(f"Column '{colName}' is out of range for the provided row.") 
     
-def getRequiredFields(user_email):
+def getRequiredFields(user_email, type = "common"):
     requiredFields = {
         "kkz5193@psu.edu": ["stance"],
         "xzx5141@psu.edu": ["vocal_tone"],
         "sks7267@psu.edu": ["facial_expression"],
         "lxb5609@psu.edu": ["speaker_role", "speaker_gender"]
     }
-    return
+    if type == "irr":
+        requiredFields = {
+            "kkz5193@psu.edu": ["vocal_tone"],
+            "xzx5141@psu.edu": ["facial_expression"],
+            "sks7267@psu.edu": ["stance"]
+        }
+
+    return requiredFields.get(user_email, [])
