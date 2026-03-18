@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_PATH = "annotation.db"
+DB_PATH = "db/annotation.db"
 
 conn = sqlite3.connect(DB_PATH)
 users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
@@ -15,12 +15,19 @@ def insert_users(users):
             {"email": "...", "alias": "...", "pair_email": "..."},
         ]
     """
-    cursor = conn.cursor()
-    for u in users:
-        cursor.execute("""
-            INSERT OR IGNORE INTO "User" (Email, Alias, PairEmail)
-            VALUES (?, ?, ?)
-        """, (u["email"], u["alias"], u["pair_email"]))
-    conn.commit()
+    try:
+        cursor = conn.cursor()
+        for u in users:
+            cursor.execute("""
+                INSERT OR IGNORE INTO "User" (Email, Alias, PairEmail)
+                VALUES (?, ?, ?)
+            """, (u["email"], u["alias"], u["pair_email"]))
+        conn.commit()
+        print("Users inserted successfully.")
+        conn.close()
+    except sqlite3.Error as e:
+        print(f"Error inserting users: {e}")
 
 
+if __name__ == "__main__":
+    insert_users(users)

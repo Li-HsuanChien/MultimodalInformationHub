@@ -11,7 +11,7 @@ conn = sqlite3.connect(DB_PATH)
 def read_csv_insert_videoseg_no_header(file_path = "annotation-human/version2/training_meetings_annotation_state&county.csv", conn=conn):
     cursor = conn.cursor()
     file_path = os.path.normpath(file_path)  
-    with open(file_path, newline='', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="cp1252") as f:
         reader = csv.reader(f)
 
         for i, row in enumerate(reader, start=1):
@@ -62,3 +62,8 @@ def read_csv_insert_videoseg_no_header(file_path = "annotation-human/version2/tr
                 continue
 
     conn.commit()
+    print("Video segments inserted successfully.")
+    conn.close()
+
+if __name__ == "__main__":
+    read_csv_insert_videoseg_no_header(conn=conn)

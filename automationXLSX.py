@@ -8,13 +8,22 @@ conn = sqlite3.connect(DB_PATH)
 
 
 def check_annotation_type(user_email, row):
-    for annotationtypeOption in ["common", "irr"]:
-        annotationtype = annotationtypeOption
+    if user_email == "" or row is None:
+        print(f"[MISSING USER EMAIL] or row={row}")
+        return "None"
+    for annotationtypeOption in ["irr", "common"]:
+        annotationtype = "None"
+
+        if annotationtypeOption == "irr" and user_email == "lxb5609@psu.edu":
+            continue  # Luke does not have IRR fields, so skip IRR check for him
 
         for field in getRequiredFields(user_email, annotationtypeOption):
-            if getItem(row, field) is None:
-                annotationtype = "None"
-                continue
+            if (getItem(row, field) is not None )and (getItem(row, field) != "NA") and (getItem(row, field) != ""):
+                annotationtype = annotationtypeOption
+                break
+                
+
+    return annotationtype
 
 def check_duplicate_annotation(user_email, tcu_id, cursor):
     try:
@@ -29,6 +38,7 @@ def check_duplicate_annotation(user_email, tcu_id, cursor):
     except sqlite3.Error as e:
         print(f"[DB ERROR - Annotation CHECK] {user_email} | TCU={tcu_id} | {e}")
         return False
+    
 def validate_duration(user_email, row):
     start_sec = time_to_seconds(getItem(row, "tcu_start"))
     end_sec = time_to_seconds(getItem(row, "tcu_end"))
@@ -98,7 +108,7 @@ def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cu
 def process_csv(file_path, user_email, conn, start_row=25):
     cursor = conn.cursor()
     
-    with open(file_path, newline='', encoding='utf-8') as f:
+    with open(file_path, newline='', encoding='cp1252') as f:
         reader = csv.reader(f)
         
         #check annotation type based on required fields for the user
@@ -251,7 +261,7 @@ def create_file_if_not_exists(path):
     if not file_exists:
         print("No existing " + path + " found")
         print("Creating new " + path)
-        with open(path, "w", newline='', encoding="utf-8") as f:
+        with open(path, "w", newline='', encoding="cp1252") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "original_row_number", "video_url", "meeting_date",
@@ -265,7 +275,7 @@ def get_existing_tcuids_for_file(file_path, user_email):
     exisiting_id = set()
     create_file_if_not_exists(file_path)
     try:
-        with open(file_path, newline='', encoding="utf-8") as f:
+        with open(file_path, newline='', encoding="cp1252") as f:
             reader = csv.reader(f)
             for row in reader:
                 exisiting_id.add(row[getindex("tcu_id")])
@@ -303,8 +313,8 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
         
         
         # 2. Append only NEW rows
-        with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined, \
-     open(pair_output_file, "a", newline='', encoding="utf-8") as f_pair:
+        with open(combined_output_file, "a", newline='', encoding="cp1252") as f_combined, \
+     open(pair_output_file, "a", newline='', encoding="cp1252") as f_pair:
 
             writer_combined = csv.writer(f_combined)
             writer_pair = csv.writer(f_pair)
@@ -343,4 +353,5 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
     implement data to sql branch
     implement main function and do integration test
     set up cloud retrieval of csv and write
+    youtube link to id
 """
