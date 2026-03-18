@@ -8,7 +8,7 @@ conn = sqlite3.connect(DB_PATH)
 
 
 
-def read_csv_insert_videoseg_no_header(file_path = "annotation-human\version2\training_meetings_annotation_state&county.csv", conn=conn):
+def read_csv_insert_videoseg_no_header(file_path = "annotation-human/version2/training_meetings_annotation_state&county.csv", conn=conn):
     cursor = conn.cursor()
     file_path = os.path.normpath(file_path)  
     with open(file_path, newline='', encoding='utf-8') as f:
