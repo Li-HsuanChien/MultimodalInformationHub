@@ -18,9 +18,12 @@ def check_annotation_type(user_email, row):
             continue  # Luke does not have IRR fields, so skip IRR check for him
 
         for field in getRequiredFields(user_email, annotationtypeOption):
+            # print(f"Checking field '{field}' for user '{user_email}' and annotation type '{annotationtypeOption}'")
             if (getItem(row, field) is not None )and (getItem(row, field) != "NA") and (getItem(row, field) != ""):
                 annotationtype = annotationtypeOption
                 break
+        if annotationtype != "None":
+            break
                 
 
     return annotationtype
