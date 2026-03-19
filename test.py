@@ -2,7 +2,7 @@ from unittest.mock import patch
 from automation import check_annotation_type, check_duplicate_annotation, validate_duration,\
       insert_annotation, insert_tcu_if_not_exists, get_unannotated_tcus, get_alias_from_email, \
         get_existing_tcuids_for_file, export_missing_tcus, create_file_if_not_exists
-import sqlite3, csv, unittest, tempfile, os
+import sqlite3, csv, unittest, tempfile, os, io
 
 
 users = {   "Kelly": {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
@@ -76,7 +76,6 @@ class TestCheckAnnotationType(unittest.TestCase):
                     t["input"]["row"]
                 )
                 self.assertEqual(result, t["expected"])
-
 class TestCheckDuplicateAnnotation(unittest.TestCase):
 
     def setUp(self):
@@ -159,7 +158,6 @@ class TestCheckDuplicateAnnotation(unittest.TestCase):
 
         result = check_duplicate_annotation("test@example.com", "tcu1", self.cursor)
         self.assertFalse(result)
-
 class TestInsertAnnotation(unittest.TestCase):
 
     def setUp(self):
@@ -407,7 +405,6 @@ class TestValidateDuration(unittest.TestCase):
             with self.subTest(i=i, input=t["input"]):
                 result = validate_duration(t["input"]["row"])
                 self.assertEqual(result, t["expected"])
-
 class TestGetAliasFromEmail(unittest.TestCase):
 
     def setUp(self):
@@ -501,7 +498,6 @@ class TestCreateFile(unittest.TestCase):
                 content = f.read()
 
             self.assertIn("existing content", content)
-            
 class TestGetExistingTCUIds(unittest.TestCase):
 
     def setUp(self):
@@ -566,6 +562,262 @@ class TestGetExistingTCUIds(unittest.TestCase):
         result = get_existing_tcuids_for_file("dummy.csv", "user@test.com")
 
         self.assertIsNone(result)
-        
+    
+def build_db():
+    """Create an in-memory SQLite DB with schema and fixture data."""
+    conn = sqlite3.connect(":memory:")
+    c = conn.cursor()
+ 
+    c.executescript("""
+        CREATE TABLE "User" (
+            Email TEXT PRIMARY KEY,
+            Alias TEXT NOT NULL,
+            PairEmail TEXT,
+            FOREIGN KEY (PairEmail) REFERENCES "User"(Email)
+        );
+ 
+        CREATE TABLE VideoSegment (
+            ID TEXT PRIMARY KEY,
+            video_urlID TEXT,
+            meeting_date DATE,
+            "State" TEXT,
+            County TEXT,
+            original_row_number INTEGER,
+            ai_mention_timestamp TEXT,
+            segment_start TEXT,
+            segment_end TEXT,
+            segment_transcript TEXT
+        );
+ 
+        CREATE TABLE TCU (
+            TCUID TEXT PRIMARY KEY,
+            VIDEOSEGID TEXT NOT NULL,
+            tcu_start TEXT,
+            tcu_end TEXT,
+            tcu_transcript TEXT,
+            video_saved BOOLEAN,
+            audio_saved BOOLEAN,
+            frames_saved BOOLEAN,
+            annotationtype TEXT CHECK(annotationtype IN ('common', 'irr')),
+            FOREIGN KEY (VIDEOSEGID) REFERENCES VideoSegment(ID)
+        );
+ 
+        CREATE TABLE Annotation (
+            AnnotationID TEXT PRIMARY KEY,
+            TCUID TEXT NOT NULL,
+            Email TEXT NOT NULL,
+            speaker_role TEXT,
+            speaker_gender TEXT,
+            stance TEXT,
+            vocal_tone TEXT,
+            facial_expression TEXT,
+            coder_notes TEXT,
+            annotationtype TEXT CHECK(annotationtype IN ('common', 'irr')) NOT NULL,
+            FOREIGN KEY (TCUID) REFERENCES TCU(TCUID),
+            FOREIGN KEY (Email) REFERENCES "User"(Email),
+            UNIQUE (Email, TCUID)
+        );
+    """)
+ 
+    # Users
+    c.executemany(
+        'INSERT INTO "User" (Email, Alias, PairEmail) VALUES (?, ?, ?)',
+        [
+            ("alice@example.com", "Alice", None),
+            ("bob@example.com",   "Bob",   None),
+        ],
+    )
+ 
+    # VideoSegments
+    c.executemany(
+        """INSERT INTO VideoSegment
+           (ID, video_urlID, meeting_date, State, County,
+            original_row_number, ai_mention_timestamp,
+            segment_start, segment_end, segment_transcript)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            ("seg1", "5bzXa6fx57o", "2024-01-15", "California", "Los Angeles",
+             1, "00:05:00", "00:04:50", "00:05:30", "Segment one transcript."),
+            ("seg2", "abc123xyz",   "2024-02-20", "Texas", "Travis",
+             2, "00:10:00", "00:09:45", "00:10:30", "Segment two transcript."),
+        ],
+    )
+ 
+    # TCUs
+    c.executemany(
+        """INSERT INTO TCU
+           (TCUID, VIDEOSEGID, tcu_start, tcu_end, tcu_transcript,
+            video_saved, audio_saved, frames_saved, annotationtype)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            ("tcu1", "seg1", "00:04:52", "00:05:02", "TCU one text.",   1, 1, 1, "common"),
+            ("tcu2", "seg1", "00:05:05", "00:05:15", "TCU two text.",   1, 0, 0, "common"),
+            ("tcu3", "seg2", "00:09:50", "00:10:00", "TCU three text.", 0, 0, 0, "common"),
+            ("tcu4", "seg2", "00:10:05", "00:10:15", "TCU four text.",  1, 1, 1, "irr"),
+        ],
+    )
+ 
+    conn.commit()
+    return conn
+ 
+ 
+def annotate(conn, annotation_id, tcuid, email, annotationtype="common"):
+    conn.execute(
+        """INSERT INTO Annotation
+           (AnnotationID, TCUID, Email, speaker_role, speaker_gender,
+            stance, vocal_tone, facial_expression, coder_notes, annotationtype)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (annotation_id, tcuid, email, "teacher", "female",
+         "positive", "neutral", "smile", "note", annotationtype),
+    )
+    conn.commit()
+ 
+  
+class TestGetUnannotatedTcus(unittest.TestCase):
+ 
+    def setUp(self):
+        self.conn = build_db()
+ 
+    def tearDown(self):
+        self.conn.close()
+ 
+ 
+    def test_returns_list(self):
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        self.assertIsInstance(result, list)
+ 
+    def test_each_row_has_19_columns(self):
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        for row in result:
+            self.assertEqual(len(row), 19, f"Expected 19 columns, got {len(row)}")
+ 
+    # ------------------------------------------------------------------
+    # No annotations yet → all common TCUs returned
+    # ------------------------------------------------------------------
+ 
+    def test_no_annotations_returns_all_tcus(self):
+        """With no annotations, all TCUs (including irr) are returned since none are annotated."""
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        self.assertCountEqual(tcuids, ["tcu1", "tcu2", "tcu3", "tcu4"])
+ 
+    def test_irr_tcus_not_filtered_by_query(self):
+        """
+        The WHERE clause only checks a.TCUID IS NULL; the annotationtype != 'irr'
+        guard is on the JOIN condition, not WHERE. This means an unannotated IRR
+        TCU (tcu4) WILL appear in results — this test documents that known
+        behaviour so any future fix is caught immediately.
+        """
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        # tcu4 is IRR but unannotated, so the current query returns it
+        self.assertIn("tcu4", tcuids)
+ 
+    # ------------------------------------------------------------------
+    # Annotation fields are empty strings (not None)
+    # ------------------------------------------------------------------
+ 
+    def test_annotation_fields_are_empty_strings(self):
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        self.assertTrue(len(result) > 0)
+        annotation_fields = result[0][11:17]  # indices 11-16
+        for field in annotation_fields:
+            self.assertEqual(field, "", f"Expected '' but got {field!r}")
+ 
+    # ------------------------------------------------------------------
+    # Annotated TCU is excluded for that user
+    # ------------------------------------------------------------------
+ 
+    def test_annotated_tcu_excluded_for_annotating_user(self):
+        annotate(self.conn, "ann1", "tcu1", "alice@example.com")
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        self.assertNotIn("tcu1", tcuids)
+ 
+    def test_annotated_tcu_still_returned_for_other_user(self):
+        """tcu1 annotated by Alice should still appear for Bob."""
+        annotate(self.conn, "ann1", "tcu1", "alice@example.com")
+        result = get_unannotated_tcus("bob@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        self.assertIn("tcu1", tcuids)
+ 
+    def test_multiple_annotations_all_excluded(self):
+        annotate(self.conn, "ann1", "tcu1", "alice@example.com")
+        annotate(self.conn, "ann2", "tcu2", "alice@example.com")
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        self.assertNotIn("tcu1", tcuids)
+        self.assertNotIn("tcu2", tcuids)
+        self.assertIn("tcu3", tcuids)
+ 
+    # ------------------------------------------------------------------
+    # Ordering
+    # ------------------------------------------------------------------
+ 
+    def test_results_ordered_by_original_row_number_then_tcuid(self):
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        row_numbers = [row[0] for row in result]
+        self.assertEqual(row_numbers, sorted(row_numbers))
+ 
+    # ------------------------------------------------------------------
+    # VideoSegment fields are populated
+    # ------------------------------------------------------------------
+ 
+    def test_video_segment_fields_populated(self):
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        tcu1_row = next(r for r in result if r[7] == "tcu1")
+        self.assertEqual(tcu1_row[1], "5bzXa6fx57o")   # video_urlID
+        self.assertEqual(tcu1_row[2], "2024-01-15")     # meeting_date
+        self.assertEqual(tcu1_row[17], "California")    # State
+        self.assertEqual(tcu1_row[18], "Los Angeles")   # County
+ 
+    # ------------------------------------------------------------------
+    # All annotations present → empty result
+    # ------------------------------------------------------------------
+ 
+    def test_all_common_tcus_annotated_returns_only_irr(self):
+        """When all common TCUs are annotated, only the unannotated IRR TCU (tcu4) remains."""
+        annotate(self.conn, "ann1", "tcu1", "alice@example.com")
+        annotate(self.conn, "ann2", "tcu2", "alice@example.com")
+        annotate(self.conn, "ann3", "tcu3", "alice@example.com")
+        result = get_unannotated_tcus("alice@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        self.assertEqual(tcuids, ["tcu4"])
+ 
+    # ------------------------------------------------------------------
+    # Unknown user → all common TCUs returned (no annotations exist)
+    # ------------------------------------------------------------------
+ 
+    def test_unknown_user_returns_all_tcus(self):
+        result = get_unannotated_tcus("unknown@example.com", self.conn)
+        tcuids = [row[7] for row in result]
+        self.assertCountEqual(tcuids, ["tcu1", "tcu2", "tcu3", "tcu4"])
+ 
+    # ------------------------------------------------------------------
+    # Error handling
+    # ------------------------------------------------------------------
+ 
+    def test_returns_empty_list_on_query_error(self):
+        """A broken execute() inside the try block should return []."""
+        from unittest.mock import MagicMock
+        conn = MagicMock()
+        conn.cursor.return_value.execute.side_effect = sqlite3.OperationalError("simulated error")
+ 
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            result = get_unannotated_tcus("alice@example.com", conn)
+ 
+        self.assertEqual(result, [])
+        self.assertIn("[QUERY ERROR]", captured.getvalue())
+ 
+    def test_error_message_contains_user_email(self):
+        from unittest.mock import MagicMock
+        conn = MagicMock()
+        conn.cursor.return_value.execute.side_effect = sqlite3.OperationalError("err")
+ 
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            get_unannotated_tcus("alice@example.com", conn)
+        self.assertIn("alice@example.com", captured.getvalue())    
 if __name__ == "__main__":
     unittest.main()

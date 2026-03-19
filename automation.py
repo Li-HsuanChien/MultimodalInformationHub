@@ -210,7 +210,6 @@ def get_unannotated_tcus(user_email, conn):
     including associated VideoSegment info.
     """
     cursor = conn.cursor()
-
     try:
         cursor.execute("""
             SELECT
@@ -242,18 +241,14 @@ def get_unannotated_tcus(user_email, conn):
             WHERE a.TCUID IS NULL
             ORDER BY vs.original_row_number, t.TCUID
         """, (user_email,))
-
         rows = []
         for r in cursor.fetchall():
             row_list = list(r)
-            # replace None with empty string for annotation fields
             for i in range(11, 17):
                 if row_list[i] is None:
                     row_list[i] = ""
             rows.append(row_list)
-
         return rows
-
     except sqlite3.Error as e:
         print(f"[QUERY ERROR] user={user_email} | {e}")
         return []
