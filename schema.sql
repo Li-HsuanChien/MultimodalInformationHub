@@ -42,7 +42,7 @@ CREATE TABLE Annotation (
 
     TCUID TEXT NOT NULL,
     Email TEXT NOT NULL,
-
+    speaker_role TEXT,
     speaker_gender TEXT,
     stance TEXT,
     vocal_tone TEXT,

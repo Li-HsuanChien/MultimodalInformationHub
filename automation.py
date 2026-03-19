@@ -57,7 +57,7 @@ def validate_duration(row):
         return False, "DURATION"
     return True
 
-def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
+def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor):
     try:
         cursor.execute("""
             INSERT OR IGNORE INTO TCU (
@@ -76,7 +76,7 @@ def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
         ))
         return True
     except sqlite3.Error as e:
-        print(f"[DB ERROR - TCU INSERT] {user_email} | TCU={tcu_id} | {e}")
+        print(f"[DB ERROR - TCU INSERT]  | TCU={tcu_id} | {e}")
         return False
     
 def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
@@ -86,17 +86,19 @@ def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cu
                 AnnotationID,
                 TCUID,
                 Email,
+                speaker_role,
                 speaker_gender,
                 stance,
                 vocal_tone,
                 facial_expression,
                 coder_notes,
                 annotationtype       
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             annotation_id,
             tcu_id,
             user_email,
+            getItem(row, "speaker_role"),
             getItem(row, "speaker_gender"),
             getItem(row, "stance"),
             getItem(row, "vocal_tone"),
@@ -104,12 +106,15 @@ def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cu
             getItem(row, "coder_notes"),
             annotationtype
         ))
+        return True
 
     except sqlite3.IntegrityError as e:
         print(f"[DB INTEGRITY ERROR] {user_email} | TCU={tcu_id} | {e}")
+        return False
 
     except sqlite3.Error as e:
         print(f"[DB ERROR] {user_email} | TCU={tcu_id} | {e}")
+        return False
 
 def process_csv(file_path, user_email, conn, start_row=25):
     cursor = conn.cursor()
@@ -187,11 +192,15 @@ def process_csv(file_path, user_email, conn, start_row=25):
             #     continue
             
             # 5. Ensure TCU exists
-            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
+            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor):
+                print(f"[FAILED TO INSERT TCU] {user_email} | TCU={tcu_id} | row={row}")
                 continue
             # 6. Insert Annotation (ONLY annotation fields)
             annotation_id = f"{tcu_id}_{user_email}"
-            insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor)            
+            if not insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
+                
+                print(f"[FAILED TO INSERT ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
+                continue            
     conn.commit()
 
 
