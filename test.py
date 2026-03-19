@@ -3,6 +3,7 @@ from automation import check_annotation_type, check_duplicate_annotation, valida
       insert_annotation, insert_tcu_if_not_exists, get_unannotated_tcus, get_alias_from_email, \
         get_existing_tcuids_for_file, export_missing_tcus, create_file_if_not_exists
 import sqlite3, csv, unittest, tempfile, os, io
+from pathlib import Path
 
 
 users = {   "Kelly": {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
@@ -671,8 +672,7 @@ def annotate(conn, annotation_id, tcuid, email, annotationtype="common"):
          "positive", "neutral", "smile", "note", annotationtype),
     )
     conn.commit()
- 
-  
+
 class TestGetUnannotatedTcus(unittest.TestCase):
  
     def setUp(self):
@@ -819,5 +819,157 @@ class TestGetUnannotatedTcus(unittest.TestCase):
         with patch("sys.stdout", captured):
             get_unannotated_tcus("alice@example.com", conn)
         self.assertIn("alice@example.com", captured.getvalue())    
+
+def write_rows_to_csv(rows, output_path):
+    output_path = Path(output_path)
+    HEADER = [
+        "col0","col1","col2","col3","col4","col5","col6",
+        "video_id","transcript_text","start_time","end_time",
+        "col11","col12","col13","col14","col15","col16",
+    ]
+    existing_ids = set()
+    file_exists = output_path.exists() and output_path.stat().st_size > 0
+    if file_exists:
+        with open(output_path, newline="", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            next(reader, None)
+            for row in reader:
+                if len(row) > 7:
+                    existing_ids.add(row[7])
+    with open(output_path, "a", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        if not file_exists:
+            writer.writerow(HEADER)
+        for row in rows:
+            vid_id = row[7] if len(row) > 7 else ""
+            if vid_id not in existing_ids:
+                writer.writerow(row)
+                existing_ids.add(vid_id)
+ 
+ 
+ORIGINAL_VIDEO_ID = 'esNG0Dm24ac-TCU06'
+ 
+SAMPLE_ROW = [
+    '','','','','','','',
+    ORIGINAL_VIDEO_ID,
+    "SO IT IS BENEFIT AND RISK AND WE WANT TO MY MY POSITION IS I WANT TO MAKE SURE THAT WE ARE AT THE BLEEDING EDGE.",
+    '1:28:41','1:29:02',
+    '','','','','','',
+]
+ 
+OTHER_ROWS = [
+    ['','','','','','','','ABC123xyz-NEW01','DIFFERENT TRANSCRIPT SEGMENT.','0:05:10','0:05:30','','','','','',''],
+    ['','','','','','','','DEF456uvw-NEW02','ANOTHER MOCK TRANSCRIPT LINE.','0:12:00','0:12:20','','','','','',''],
+]
+ 
+def _read_data_rows(path):
+    with open(path, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        next(reader)
+        return list(reader)
+ 
+ 
+class TestOutputWriter(unittest.TestCase):
+    """
+    Single class covering both runs against the same tempfile.
+ 
+    setUp:
+      - Run 1: write SAMPLE_ROW  (original video_id)
+      - Run 2: write OTHER_ROWS  (two new video_ids)
+ 
+    Each test method inspects the file at the state left by both runs,
+    except the first-run-only checks which snapshot the file after run 1
+    by re-reading just the rows present at that point via self.rows_after_run1.
+    """
+ 
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix='.csv', prefix='lxb5609_')
+        os.close(fd)
+        os.unlink(self.path)                              # start with no file
+ 
+        write_rows_to_csv([SAMPLE_ROW], self.path)       # --- Run 1 ---
+        self.rows_after_run1 = _read_data_rows(self.path)
+ 
+        write_rows_to_csv(OTHER_ROWS, self.path)          # --- Run 2 ---
+        self.rows_after_run2 = _read_data_rows(self.path)
+ 
+    def tearDown(self):
+        if Path(self.path).exists():
+            os.unlink(self.path)
+ 
+    # ------------------------------------------------------------------
+    # Run 1 assertions — file created correctly on first write
+    # ------------------------------------------------------------------
+ 
+    def test_run1_file_is_created(self):
+        self.assertTrue(Path(self.path).exists())
+ 
+    def test_run1_file_is_not_empty(self):
+        self.assertGreater(Path(self.path).stat().st_size, 0)
+ 
+    def test_run1_header_present(self):
+        with open(self.path, newline="") as fh:
+            h = next(csv.reader(fh))
+        self.assertIn("video_id", h)
+ 
+    def test_run1_data_row_count(self):
+        self.assertEqual(len(self.rows_after_run1), 1)
+ 
+    def test_run1_video_id_preserved(self):
+        self.assertEqual(self.rows_after_run1[0][7], ORIGINAL_VIDEO_ID)
+ 
+    def test_run1_transcript_text_preserved(self):
+        self.assertIn("BLEEDING EDGE", self.rows_after_run1[0][8])
+ 
+    def test_run1_start_time(self):
+        self.assertEqual(self.rows_after_run1[0][9], '1:28:41')
+ 
+    def test_run1_end_time(self):
+        self.assertEqual(self.rows_after_run1[0][10], '1:29:02')
+ 
+    def test_run1_column_count(self):
+        self.assertEqual(len(self.rows_after_run1[0]), 17)
+ 
+    # ------------------------------------------------------------------
+    # Run 2 assertions — new ids appended; original id untouched
+    # ------------------------------------------------------------------
+ 
+    def test_run2_total_row_count(self):
+        self.assertEqual(len(self.rows_after_run2), 3)
+ 
+    def test_run2_original_id_still_present(self):
+        ids = [r[7] for r in self.rows_after_run2]
+        self.assertIn(ORIGINAL_VIDEO_ID, ids)
+ 
+    def test_run2_original_transcript_unchanged(self):
+        orig = next(r for r in self.rows_after_run2 if r[7] == ORIGINAL_VIDEO_ID)
+        self.assertEqual(orig[8], SAMPLE_ROW[8])
+ 
+    def test_run2_original_times_unchanged(self):
+        orig = next(r for r in self.rows_after_run2 if r[7] == ORIGINAL_VIDEO_ID)
+        self.assertEqual(orig[9], '1:28:41')
+        self.assertEqual(orig[10], '1:29:02')
+ 
+    def test_run2_new_ids_appended(self):
+        ids = [r[7] for r in self.rows_after_run2]
+        for r in OTHER_ROWS:
+            self.assertIn(r[7], ids)
+ 
+    def test_run2_no_duplicate_ids(self):
+        ids = [r[7] for r in self.rows_after_run2]
+        self.assertEqual(len(ids), len(set(ids)))
+ 
+    def test_run2_header_appears_only_once(self):
+        with open(self.path) as fh:
+            self.assertEqual(fh.read().count("video_id"), 1)
+ 
+    def test_run2_rerun_same_original_no_duplicate(self):
+        write_rows_to_csv([SAMPLE_ROW], self.path)       # Run 3 — same id again
+        rows = _read_data_rows(self.path)
+        count = sum(1 for r in rows if r[7] == ORIGINAL_VIDEO_ID)
+        self.assertEqual(count, 1)
+ 
+
+ 
 if __name__ == "__main__":
     unittest.main()

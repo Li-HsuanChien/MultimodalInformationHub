@@ -314,11 +314,10 @@ def get_existing_tcuids_for_file(file_path, user_email,  start_row=2):
         print(f"[READ EXISTING ERROR] user={user_email} file={file_path} | {e}")
         return None
     
-def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version2"):
-    try:
-        rows = get_unannotated_tcus(user_email, conn)
+# rows = get_unannotated_tcus(user_email, conn)
 
-        
+def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/version2"):
+    try:        
         if not rows:
             print(f"[INFO] No missing TCUs for {user_email}")
             return
@@ -377,8 +376,7 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
 
 
 """Todo: 
-    Test each module function
-    activate sql db
+    Review test cases
     implement csv file to data branch
     implement data to sql branch
     implement main function and do integration test

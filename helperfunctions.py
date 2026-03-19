@@ -1,3 +1,6 @@
+import csv
+
+
 def time_to_seconds(t):
     try:
         h, m, s = map(int, t.split(":"))
@@ -59,3 +62,9 @@ def getRequiredFields(user_email, type = "common"):
         }
 
     return requiredFields.get(user_email, [])
+
+def read_data_rows(path):
+    with open(path, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        next(reader)
+        return list(reader)
