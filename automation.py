@@ -42,19 +42,19 @@ def check_duplicate_annotation(user_email, tcu_id, cursor):
         print(f"[DB ERROR - Annotation CHECK] {user_email} | TCU={tcu_id} | {e}")
         return False
     
-def validate_duration(user_email, row):
+def validate_duration(row):
     start_sec = time_to_seconds(getItem(row, "tcu_start"))
     end_sec = time_to_seconds(getItem(row, "tcu_end"))
 
     if start_sec is None or end_sec is None:
-        print(f"[INVALID TIME FORMAT] {user_email} | row={row}")
-        return False
+        print(f"[INVALID TIME FORMAT] row={row}")
+        return False, "FORMAT"
 
     duration = end_sec - start_sec
 
     if duration <= 0 or duration > 60:
-        print(f"[INVALID DURATION] {user_email} | duration={duration} | row={row}")
-        return False
+        print(f"[INVALID DURATION] | duration={duration} | row={row}")
+        return False, "DURATION"
     return True
 
 def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
@@ -142,8 +142,13 @@ def process_csv(file_path, user_email, conn, start_row=25):
                 continue
             
             # 3. Validate duration (0 < duration <= 60)
-
-            if not validate_duration(user_email, row):
+            duration_valid, reason = validate_duration(row)
+            if not duration_valid:
+                if reason == "FORMAT":
+                    print(f"[INVALID TIME FORMAT] {user_email} | row={row}")
+                elif reason == "DURATION":
+                    print(f"[INVALID DURATION] {user_email} | row={row}")
+                # TODO: automate invalid input notification to user
                 continue
 
             # 4. Ensure VideoSegment exists Ignored since we populate videos first now
@@ -359,5 +364,4 @@ def export_missing_tcus(user_email, conn, output_sub = "annotation-human/version
     implement data to sql branch
     implement main function and do integration test
     set up cloud retrieval of csv and write
-    youtube link to id
 """

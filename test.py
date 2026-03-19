@@ -1,9 +1,9 @@
-from automationXLSX import check_annotation_type, check_duplicate_annotation, insert_annotation, validate_duration,\
+from automation import check_annotation_type, check_duplicate_annotation, insert_annotation, validate_duration,\
       insert_annotation, insert_tcu_if_not_exists, get_unannotated_tcus, get_alias_from_email, \
         get_existing_tcuids_for_file, export_missing_tcus
 import sqlite3, csv, unittest
 
-db = "db/annotation.db"
+db = "testdb/annotation.db"
 
 users = {   "Kelly": {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
             "Xinyu": {"email": "xzx5141@psu.edu", "alias": "Xinyu", "pair_email": "sks7267@psu.edu"},
@@ -20,8 +20,6 @@ def get_data(file_path):
     except Exception as e:
         print(f"Error reading CSV file: {e}")
         return []
-    
-
 
 class TestCheckAnnotationType(unittest.TestCase):
 
@@ -78,8 +76,6 @@ class TestCheckAnnotationType(unittest.TestCase):
                     t["input"]["row"]
                 )
                 self.assertEqual(result, t["expected"])
-
-
 
 class TestCheckDuplicateAnnotation(unittest.TestCase):
 
@@ -164,5 +160,60 @@ class TestCheckDuplicateAnnotation(unittest.TestCase):
         result = check_duplicate_annotation("test@example.com", "tcu1", self.cursor)
         self.assertFalse(result)
 
+class TestValidateDuration(unittest.TestCase):
+
+    def setUp(self):
+        self.test_cases = [
+            {
+                "input": {
+                    "row":['', '', '', '', '', '', '', 'esNG0Dm24ac-TCU06', "Sample Tesxt", '1:28:41', '1:29:02', '', '', '', '', '', '']
+                },
+                "expected": True
+            },
+            {
+                "input": {
+                    "row":['', '', '', '', '', '', '', 'esNG0Dm24ac-TCU06', "Sample Tesxt", '12841', '1:29:02', '', '', '', '', '', '']
+                },
+                "expected": (False, "FORMAT")
+            },
+            {
+                "input": {
+                    "row":['', '', '', '', '', '', '', 'esNG0Dm24ac-TCU06', "Sample Tesxt", 'NA', 'NA', '', '', '', '', '', '']
+                },
+                "expected": (False, "FORMAT")
+            },
+            {
+                #less than 0 seconds
+                "input": {
+                    "useremail": "sks7267@psu.edu",
+                    "row":['', '', '', '', '', '', '', 'esNG0Dm24ac-TCU06', "Sample Tesxt", '1:28:41', '1:27:01', '', '', '', '', '', '']
+                },
+                "expected": (False, "DURATION")   
+            },
+            {
+                # 0 seconds
+                "input": {
+                    "useremail": "sks7267@psu.edu",
+                    "row":['', '', '', '', '', '', '', 'esNG0Dm24ac-TCU06', "Sample Tesxt", '1:28:41', '1:28:41', '', '', '', '', '', '']
+                },
+                "expected": (False, "DURATION")   
+            },
+            {
+                #longer than 60 seconds
+                "input": {
+                    "useremail": "sks7267@psu.edu",
+                    "row":['', '', '', '', '', '', '', 'esNG0Dm24ac-TCU06', "Sample Tesxt", '1:28:41', '1:30:02', '', '', '', '', '', '']
+                },
+                "expected": (False, "DURATION")   
+            }
+        ]
+
+    def test_duration(self):
+        for i, t in enumerate(self.test_cases):
+            with self.subTest(i=i, input=t["input"]):
+                result = validate_duration(t["input"]["row"])
+                self.assertEqual(result, t["expected"])
+
+       
 if __name__ == "__main__":
     unittest.main()

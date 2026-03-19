@@ -8,6 +8,9 @@ def time_to_seconds(t):
 def extract_video_id(url):
     return url.replace("https://youtu.be/", "").strip()
 
+def return_video_url(id):
+    return f"https://youtu.be/{id}"
+
 def build_videoseg_id(video_id, timestamp):
     return f"{video_id}-ai_{timestamp}"
 
