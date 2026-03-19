@@ -62,14 +62,17 @@ def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
         cursor.execute("""
             INSERT OR IGNORE INTO TCU (
                 TCUID, VIDEOSEGID,
-                tcu_start, tcu_end, tcu_transcript
-            ) VALUES (?, ?, ?, ?, ?)
+                tcu_start, tcu_end, tcu_transcript, video_saved, audio_saved, frames_saved
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             tcu_id,
             videoseg_id,
             getItem(row, "tcu_start"),
             getItem(row, "tcu_end"),
-            getItem(row, "tcu_transcript")
+            getItem(row, "tcu_transcript"),
+            False,  # video_saved
+            False,  # audio_saved   
+            False   # frames_saved
         ))
         return True
     except sqlite3.Error as e:
