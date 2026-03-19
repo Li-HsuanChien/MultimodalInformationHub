@@ -407,5 +407,66 @@ class TestValidateDuration(unittest.TestCase):
                 result = validate_duration(t["input"]["row"])
                 self.assertEqual(result, t["expected"])
 
+class TestGetAliasFromEmail(unittest.TestCase):
+
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.cursor = self.conn.cursor()
+
+        # Create User table
+        self.cursor.execute("""
+        CREATE TABLE "User" (
+            Email TEXT PRIMARY KEY,
+            Alias TEXT NOT NULL,
+            PairEmail TEXT,
+            FOREIGN KEY (PairEmail) REFERENCES "User"(Email)
+        );
+        """)
+
+        # Seed data
+        self.cursor.execute("""
+            INSERT INTO "User" (Email, Alias, PairEmail)
+            VALUES (?, ?, ?)
+        """, ("user1@example.com", "Alice", None))
+
+        self.cursor.execute("""
+            INSERT INTO "User" (Email, Alias, PairEmail)
+            VALUES (?, ?, ?)
+        """, ("user2@example.com", "Bob", "user1@example.com"))
+
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+
+    # User exists, no pair
+    def test_user_exists_no_pair(self):
+        alias, pair = get_alias_from_email("user1@example.com", self.conn)
+
+        self.assertEqual(alias, "Alice")
+        self.assertIsNone(pair)
+
+    # User exists with pair
+    def test_user_exists_with_pair(self):
+        alias, pair = get_alias_from_email("user2@example.com", self.conn)
+
+        self.assertEqual(alias, "Bob")
+        self.assertEqual(pair, "user1@example.com")
+
+    #  User does not exist (raises ValueError)
+    def test_user_not_found(self):
+        with self.assertRaises(ValueError):
+            get_alias_from_email("nonexistent@example.com", self.conn)
+
+    # DB error (table dropped)
+    def test_db_error(self):
+        self.cursor.execute('DROP TABLE "User"')
+
+        alias, pair = get_alias_from_email("user1@example.com", self.conn)
+
+        self.assertIsNone(alias)
+        self.assertIsNone(pair)
+                
 if __name__ == "__main__":
     unittest.main()
