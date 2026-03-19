@@ -276,11 +276,18 @@ def get_alias_from_email(email, conn):
     except sqlite3.Error as e:
         print(f"[DB ERROR - Get Alias] email={email} | {e}")
         return None, None
+    
+
 def create_file_if_not_exists(path):
-    file_exists = os.path.exists(path)
-    if not file_exists:
-        print("No existing " + path + " found")
-        print("Creating new " + path)
+    try:
+        if os.path.exists(path):
+            return True  
+
+        print(f"No existing {path} found")
+        print(f"Creating new {path}")
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
         with open(path, "w", newline='', encoding="cp1252") as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -291,13 +298,21 @@ def create_file_if_not_exists(path):
                 "stance", "vocal_tone", "facial_expression", "coder_notes"
             ])
 
-def get_existing_tcuids_for_file(file_path, user_email):
+        return True  # successfully created
+
+    except Exception as e:
+        print(f"[FILE CREATE ERROR] path={path} | {e}")
+        return False
+    
+def get_existing_tcuids_for_file(file_path, user_email,  start_row=2):
     exisiting_id = set()
     create_file_if_not_exists(file_path)
     try:
         with open(file_path, newline='', encoding="cp1252") as f:
             reader = csv.reader(f)
-            for row in reader:
+            for i, row in enumerate(reader, start=1):
+                if i < start_row:  
+                    continue
                 exisiting_id.add(row[getindex("tcu_id")])
         return exisiting_id
     except Exception as e:

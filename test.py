@@ -1,7 +1,8 @@
+from unittest.mock import patch
 from automation import check_annotation_type, check_duplicate_annotation, validate_duration,\
       insert_annotation, insert_tcu_if_not_exists, get_unannotated_tcus, get_alias_from_email, \
-        get_existing_tcuids_for_file, export_missing_tcus
-import sqlite3, csv, unittest
+        get_existing_tcuids_for_file, export_missing_tcus, create_file_if_not_exists
+import sqlite3, csv, unittest, tempfile, os
 
 
 users = {   "Kelly": {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
@@ -203,11 +204,11 @@ class TestInsertAnnotation(unittest.TestCase):
         self.conn.commit()
 
         self.row = [
-            '', '', '', '', '', '', '', '',
+            '', '', '', '', '', '', '', 'esNG0Dm24ac-TCU01',
             'Sample Text',   
             '1:28:41',      
             '1:29:02',      
-            '', '', '', '', '', ''
+            'male', '', '', '', '', ''
         ]
 
     def tearDown(self):
@@ -467,6 +468,104 @@ class TestGetAliasFromEmail(unittest.TestCase):
 
         self.assertIsNone(alias)
         self.assertIsNone(pair)
-                
+class TestCreateFile(unittest.TestCase):
+    # File does NOT exist → should create
+    def test_create_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.csv")
+
+            create_file_if_not_exists(path)
+
+            self.assertTrue(os.path.exists(path))
+
+            # Check header
+            with open(path, newline='', encoding="cp1252") as f:
+                reader = csv.reader(f)
+                header = next(reader)
+
+            self.assertEqual(header[0], "original_row_number")
+            self.assertEqual(len(header), 17)
+
+    def test_file_already_exists(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.csv")
+
+            # Create file manually
+            with open(path, "w", newline='', encoding="cp1252") as f:
+                f.write("existing content\n")
+
+            create_file_if_not_exists(path)
+
+            # Ensure content unchanged
+            with open(path, encoding="cp1252") as f:
+                content = f.read()
+
+            self.assertIn("existing content", content)
+            
+class TestGetExistingTCUIds(unittest.TestCase):
+
+    def setUp(self):
+        self.sample_row1 = [
+            '', '', '', '', '', '', '', 'TCU01',
+            'text', '1:00', '1:10', '', '', '', '', '', ''
+        ]
+        self.sample_row2 = [
+            '', '', '', '', '', '', '', 'TCU02',
+            'text', '1:10', '1:20', '', '', '', '', '', ''
+        ]
+
+    # File created, no data → empty set
+    def test_file_creation_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.csv")
+
+            result = get_existing_tcuids_for_file(path, "user@test.com")
+
+            self.assertEqual(result, set())  # nothing beyond header
+
+    # Reads data correctly (skips first 2 rows)
+    def test_read_with_data(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.csv")
+
+            create_file_if_not_exists(path)
+
+            with open(path, "a", newline='', encoding="cp1252") as f:
+                writer = csv.writer(f)
+                writer.writerow(self.sample_row1)
+                writer.writerow(self.sample_row2)
+
+            result = get_existing_tcuids_for_file(path, "user@test.com")
+
+            self.assertIn("TCU01", result)
+            self.assertIn("TCU02", result)
+            self.assertEqual(len(result), 2)
+
+    # Test start_row behavior explicitly
+    def test_custom_start_row(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.csv")
+
+            create_file_if_not_exists(path)
+
+            with open(path, "a", newline='', encoding="cp1252") as f:
+                writer = csv.writer(f)
+                writer.writerow(self.sample_row1)
+                writer.writerow(self.sample_row2)
+
+            # Skip header + first data row
+            result = get_existing_tcuids_for_file(path, "user@test.com", start_row=3)
+
+            self.assertNotIn("TCU01", result)
+            self.assertIn("TCU02", result)
+            self.assertEqual(len(result), 1)
+
+    # Read error → returns None
+    @patch("builtins.open", side_effect=Exception("read error"))
+    def test_read_error(self, mock_open):
+        result = get_existing_tcuids_for_file("dummy.csv", "user@test.com")
+
+        self.assertIsNone(result)
+        
 if __name__ == "__main__":
     unittest.main()
