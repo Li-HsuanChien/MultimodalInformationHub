@@ -17,33 +17,36 @@ def return_video_url(id):
 def build_videoseg_id(video_id, timestamp):
     return f"{video_id}-ai_{timestamp}"
 
-def getindex(colName):
-    User_Input_COL_IDX = {
-        "original_row_number": 0,
-        "video_url": 1,
-        "meeting_date": 2,
-        "ai_mention_timestamp": 3,
-        "segment_start": 4,
-        "segment_end": 5,
-        "segment_transcript": 6,
-        "tcu_id": 7,
-        "tcu_transcript": 8,
-        "tcu_start": 9,
-        "tcu_end": 10,
-        "speaker_role": 11,
-        "speaker_gender": 12,
-        "stance": 13,
-        "vocal_tone": 14,
-        "facial_expression": 15,
-        "coder_notes": 16,
-        "State": 17,
-        "County": 18,
-    }    
-    return User_Input_COL_IDX[colName]
+def getIndex(colName, dataType = "annotation"):
+    if dataType == "tcucsv":
+        COL_IDX = {
+            "original_row_number": 0,
+            "video_url": 1,
+            "meeting_date": 2,
+            "ai_mention_timestamp": 3,
+            "segment_start": 4,
+            "segment_end": 5,
+            "segment_transcript": 6,
+            "tcu_id": 7,
+            "tcu_transcript": 8,
+            "tcu_start": 9,
+            "tcu_end": 10,
+            "speaker_role": 11,
+            "speaker_gender": 12,
+            "stance": 13,
+            "vocal_tone": 14,
+            "facial_expression": 15,
+            "coder_notes": 16,
+            "state": 17,
+            "county": 18,
+            "tcu_adder_email": 19
+        }    
+        
+    return COL_IDX[colName]
 
-def getItem(row, colName):
-    if getindex(colName) < len(row):
-        return row[getindex(colName)]
+def getItem(row, colName, dataType = "tcucsv"):
+    if getIndex(colName, dataType) < len(row):
+        return row[getIndex(colName, dataType)]
     else:
         raise IndexError(f"Column '{colName}' is out of range for the provided row.") 
     

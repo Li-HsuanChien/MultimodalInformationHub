@@ -29,11 +29,14 @@ CREATE TABLE TCU (
     tcu_start TEXT,
     tcu_end TEXT,
     tcu_transcript TEXT,
+    tcu_adder_email TEXT,
     video_saved BOOLEAN,
     audio_saved BOOLEAN,
     frames_saved BOOLEAN,
+    
 
-    FOREIGN KEY (VIDEOSEGID) REFERENCES VideoSegment(ID)
+    FOREIGN KEY (VIDEOSEGID) REFERENCES VideoSegment(ID),
+    FOREIGN KEY (tcu_adder_email) REFERENCES "User"(Email)
 );
 
 

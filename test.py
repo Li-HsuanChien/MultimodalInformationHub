@@ -1,10 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from automation import check_annotation_type, check_duplicate_annotation, validate_duration,\
       insert_annotation, insert_tcu_if_not_exists, get_unannotated_tcus, get_alias_from_email, \
-        get_existing_tcuids_for_file, export_missing_tcus, create_file_if_not_exists
+        get_existing_tcuids_for_file, export_missing_tcus, create_file_if_not_exists, process_csv
 import sqlite3, csv, unittest, tempfile, os, io
 from pathlib import Path
-
 
 users = {   "Kelly": {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
             "Xinyu": {"email": "xzx5141@psu.edu", "alias": "Xinyu", "pair_email": "sks7267@psu.edu"},
@@ -310,7 +309,7 @@ class TestInsertTCU(unittest.TestCase):
 
     # Insert works
     def test_insert_success(self):
-        result = insert_tcu_if_not_exists("tcu1", "vid1", self.row, self.cursor)
+        result = insert_tcu_if_not_exists("tcu1", "vid1", self.row, self.cursor, "test@example.com")
         self.conn.commit()
 
         self.assertTrue(result)
@@ -321,11 +320,11 @@ class TestInsertTCU(unittest.TestCase):
 
     # Duplicate insert ignored
     def test_insert_duplicate(self):
-        insert_tcu_if_not_exists("tcu1", "vid1", self.row, self.cursor)
+        insert_tcu_if_not_exists("tcu1", "vid1", self.row, self.cursor, "test@example.com")
         self.conn.commit()
 
         # Try inserting same again
-        result = insert_tcu_if_not_exists("tcu1", "vid1", self.row, self.cursor)
+        result = insert_tcu_if_not_exists("tcu1", "vid1", self.row, self.cursor, "test@example.com")
         self.conn.commit()
 
         self.assertTrue(result)  # still True because IGNORE
@@ -350,7 +349,7 @@ class TestInsertTCU(unittest.TestCase):
     def test_db_error(self):
         self.cursor.execute("DROP TABLE TCU")
 
-        result = insert_tcu_if_not_exists("tcu3", "vid1", self.row, self.cursor)
+        result = insert_tcu_if_not_exists("tcu3", "vid1", self.row, self.cursor, "test@example.com")
 
         self.assertFalse(result)
 class TestValidateDuration(unittest.TestCase):
@@ -820,156 +819,225 @@ class TestGetUnannotatedTcus(unittest.TestCase):
             get_unannotated_tcus("alice@example.com", conn)
         self.assertIn("alice@example.com", captured.getvalue())    
 
-def write_rows_to_csv(rows, output_path):
-    output_path = Path(output_path)
-    HEADER = [
-        "col0","col1","col2","col3","col4","col5","col6",
-        "video_id","transcript_text","start_time","end_time",
-        "col11","col12","col13","col14","col15","col16",
-    ]
-    existing_ids = set()
-    file_exists = output_path.exists() and output_path.stat().st_size > 0
-    if file_exists:
-        with open(output_path, newline="", encoding="utf-8") as fh:
-            reader = csv.reader(fh)
-            next(reader, None)
-            for row in reader:
-                if len(row) > 7:
-                    existing_ids.add(row[7])
-    with open(output_path, "a", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
-        if not file_exists:
-            writer.writerow(HEADER)
-        for row in rows:
-            vid_id = row[7] if len(row) > 7 else ""
-            if vid_id not in existing_ids:
-                writer.writerow(row)
-                existing_ids.add(vid_id)
- 
- 
+
+
 ORIGINAL_VIDEO_ID = 'esNG0Dm24ac-TCU06'
- 
+
 SAMPLE_ROW = [
-    '','','','','','','',
-    ORIGINAL_VIDEO_ID,
+    '', '', '', '', '', '', '',
+    ORIGINAL_VIDEO_ID,                                          # col 7  = tcu_id
     "SO IT IS BENEFIT AND RISK AND WE WANT TO MY MY POSITION IS I WANT TO MAKE SURE THAT WE ARE AT THE BLEEDING EDGE.",
-    '1:28:41','1:29:02',
-    '','','','','','',
+    '1:28:41', '1:29:02',
+    '', '', '', '', '', '', '', '', 'sks7267@psu.edu'          # col 19 = email
 ]
- 
+
 OTHER_ROWS = [
-    ['','','','','','','','ABC123xyz-NEW01','DIFFERENT TRANSCRIPT SEGMENT.','0:05:10','0:05:30','','','','','',''],
-    ['','','','','','','','DEF456uvw-NEW02','ANOTHER MOCK TRANSCRIPT LINE.','0:12:00','0:12:20','','','','','',''],
+    ['', '', '', '', '', '', '', 'ABC123xyz-NEW01', 'DIFFERENT TRANSCRIPT SEGMENT.', '0:05:10', '0:05:30', '', '', '', '', '', '', '', '', 'sks7267@psu.edu'],
+    ['', '', '', '', '', '', '', 'DEF456uvw-NEW02', 'ANOTHER MOCK TRANSCRIPT LINE.',  '0:12:00', '0:12:20', '', '', '', '', '', '', '', '', 'sks7267@psu.edu'],
 ]
- 
-def _read_data_rows(path):
-    with open(path, newline="", encoding="utf-8") as fh:
-        reader = csv.reader(fh)
-        next(reader)
-        return list(reader)
- 
- 
-class TestOutputWriter(unittest.TestCase):
+
+USER_EMAIL  = 'xzx5141@psu.edu'
+PAIR_EMAIL  = 'sks7267@psu.edu'
+ALIAS       = 'Xinyu'
+TCU_ID_COL  = 7
+EMAIL_COL   = 19
+
+
+def _read_data_rows(filepath):
+    """Return all non-header rows from a CSV (skips the first row)."""
+    with open(filepath, newline='', encoding='cp1252') as fh:
+        rows = list(csv.reader(fh))
+    return rows
+
+
+class TestExportMissingTCUs(unittest.TestCase):
     """
-    Single class covering both runs against the same tempfile.
- 
+    Tests for export_missing_tcus().
+
     setUp:
-      - Run 1: write SAMPLE_ROW  (original video_id)
-      - Run 2: write OTHER_ROWS  (two new video_ids)
- 
-    Each test method inspects the file at the state left by both runs,
-    except the first-run-only checks which snapshot the file after run 1
-    by re-reading just the rows present at that point via self.rows_after_run1.
+      - Run 1: SAMPLE_ROW  → both combined and irr files created, 1 row each
+      - Run 2: OTHER_ROWS  → 2 new rows appended to both files; original untouched
     """
- 
+
+    def _make_conn(self):
+        return MagicMock()
+
     def setUp(self):
-        fd, self.path = tempfile.mkstemp(suffix='.csv', prefix='lxb5609_')
-        os.close(fd)
-        os.unlink(self.path)                              # start with no file
- 
-        write_rows_to_csv([SAMPLE_ROW], self.path)       # --- Run 1 ---
-        self.rows_after_run1 = _read_data_rows(self.path)
- 
-        write_rows_to_csv(OTHER_ROWS, self.path)          # --- Run 2 ---
-        self.rows_after_run2 = _read_data_rows(self.path)
- 
+        self.tmpdir     = tempfile.mkdtemp()
+        self.output_sub = self.tmpdir
+
+        self.combined_path = os.path.join(self.tmpdir, ALIAS, 'combined_all.csv')
+        self.irr_path      = os.path.join(self.tmpdir, ALIAS, f'{PAIR_EMAIL}_irr.csv')
+
+        self.patch_alias = patch(
+            'automation.get_alias_from_email',
+            return_value=(ALIAS, PAIR_EMAIL)
+        )
+        self.patch_tcuids = patch(
+            'automation.get_existing_tcuids_for_file',
+            side_effect=lambda filepath, email: set()
+        )
+        self.patch_getindex = patch(
+            'automation.getIndex',
+            side_effect=lambda col, *args: TCU_ID_COL if col == 'tcu_id' else EMAIL_COL
+        )
+
+        self.mock_alias    = self.patch_alias.start()
+        self.mock_tcuids   = self.patch_tcuids.start()
+        self.mock_getindex = self.patch_getindex.start()
+
+        conn = self._make_conn()
+
+        # --- Run 1 ---
+        export_missing_tcus(USER_EMAIL, conn, [SAMPLE_ROW], output_sub=self.output_sub)
+        self.combined_after_run1 = _read_data_rows(self.combined_path)
+        self.irr_after_run1      = _read_data_rows(self.irr_path)
+
+        # --- Run 2: tell mock that SAMPLE_ROW's tcu_id already exists ---
+        existing_ids = {ORIGINAL_VIDEO_ID}
+        self.mock_tcuids.side_effect = lambda filepath, email: set(existing_ids)
+
+        export_missing_tcus(USER_EMAIL, conn, OTHER_ROWS, output_sub=self.output_sub)
+        self.combined_after_run2 = _read_data_rows(self.combined_path)
+        self.irr_after_run2      = _read_data_rows(self.irr_path)
+
     def tearDown(self):
-        if Path(self.path).exists():
-            os.unlink(self.path)
- 
+        self.patch_alias.stop()
+        self.patch_tcuids.stop()
+        self.patch_getindex.stop()
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
     # ------------------------------------------------------------------
-    # Run 1 assertions — file created correctly on first write
+    # Run 1 — both files created correctly
     # ------------------------------------------------------------------
- 
-    def test_run1_file_is_created(self):
-        self.assertTrue(Path(self.path).exists())
- 
-    def test_run1_file_is_not_empty(self):
-        self.assertGreater(Path(self.path).stat().st_size, 0)
- 
-    def test_run1_header_present(self):
-        with open(self.path, newline="") as fh:
-            h = next(csv.reader(fh))
-        self.assertIn("video_id", h)
- 
-    def test_run1_data_row_count(self):
-        self.assertEqual(len(self.rows_after_run1), 1)
- 
-    def test_run1_video_id_preserved(self):
-        self.assertEqual(self.rows_after_run1[0][7], ORIGINAL_VIDEO_ID)
- 
-    def test_run1_transcript_text_preserved(self):
-        self.assertIn("BLEEDING EDGE", self.rows_after_run1[0][8])
- 
-    def test_run1_start_time(self):
-        self.assertEqual(self.rows_after_run1[0][9], '1:28:41')
- 
-    def test_run1_end_time(self):
-        self.assertEqual(self.rows_after_run1[0][10], '1:29:02')
- 
-    def test_run1_column_count(self):
-        self.assertEqual(len(self.rows_after_run1[0]), 17)
- 
+
+    def test_run1_combined_file_is_created(self):
+        self.assertTrue(Path(self.combined_path).exists())
+
+    def test_run1_irr_file_is_created(self):
+        self.assertTrue(Path(self.irr_path).exists())
+
+    def test_run1_combined_is_not_empty(self):
+        self.assertGreater(Path(self.combined_path).stat().st_size, 0)
+
+    def test_run1_irr_is_not_empty(self):
+        self.assertGreater(Path(self.irr_path).stat().st_size, 0)
+
+    def test_run1_combined_row_count(self):
+        self.assertEqual(len(self.combined_after_run1), 1)
+
+    def test_run1_irr_row_count(self):
+        # SAMPLE_ROW email == PAIR_EMAIL so it qualifies for the irr file
+        self.assertEqual(len(self.irr_after_run1), 1)
+
+    def test_run1_combined_tcu_id_preserved(self):
+        self.assertEqual(self.combined_after_run1[0][TCU_ID_COL], ORIGINAL_VIDEO_ID)
+
+    def test_run1_irr_tcu_id_preserved(self):
+        self.assertEqual(self.irr_after_run1[0][TCU_ID_COL], ORIGINAL_VIDEO_ID)
+
+    def test_run1_combined_transcript_preserved(self):
+        self.assertIn('BLEEDING EDGE', self.combined_after_run1[0][8])
+
+    def test_run1_irr_transcript_preserved(self):
+        self.assertIn('BLEEDING EDGE', self.irr_after_run1[0][8])
+
+    def test_run1_combined_start_time(self):
+        self.assertEqual(self.combined_after_run1[0][9], '1:28:41')
+
+    def test_run1_irr_start_time(self):
+        self.assertEqual(self.irr_after_run1[0][9], '1:28:41')
+
+    def test_run1_combined_end_time(self):
+        self.assertEqual(self.combined_after_run1[0][10], '1:29:02')
+
+    def test_run1_irr_end_time(self):
+        self.assertEqual(self.irr_after_run1[0][10], '1:29:02')
+
+    def test_run1_combined_column_count(self):
+        self.assertEqual(len(self.combined_after_run1[0]), 20)
+
+    def test_run1_irr_column_count(self):
+        self.assertEqual(len(self.irr_after_run1[0]), 20)
+
     # ------------------------------------------------------------------
-    # Run 2 assertions — new ids appended; original id untouched
+    # Run 2 — new rows appended to both files; original untouched
     # ------------------------------------------------------------------
- 
-    def test_run2_total_row_count(self):
-        self.assertEqual(len(self.rows_after_run2), 3)
- 
-    def test_run2_original_id_still_present(self):
-        ids = [r[7] for r in self.rows_after_run2]
+
+    def test_run2_combined_total_row_count(self):
+        self.assertEqual(len(self.combined_after_run2), 3)
+
+    def test_run2_irr_total_row_count(self):
+        # All OTHER_ROWS also have PAIR_EMAIL so all 3 total should appear
+        self.assertEqual(len(self.irr_after_run2), 3)
+
+    def test_run2_combined_original_id_still_present(self):
+        ids = [r[TCU_ID_COL] for r in self.combined_after_run2]
         self.assertIn(ORIGINAL_VIDEO_ID, ids)
- 
-    def test_run2_original_transcript_unchanged(self):
-        orig = next(r for r in self.rows_after_run2 if r[7] == ORIGINAL_VIDEO_ID)
+
+    def test_run2_irr_original_id_still_present(self):
+        ids = [r[TCU_ID_COL] for r in self.irr_after_run2]
+        self.assertIn(ORIGINAL_VIDEO_ID, ids)
+
+    def test_run2_combined_original_transcript_unchanged(self):
+        orig = next(r for r in self.combined_after_run2 if r[TCU_ID_COL] == ORIGINAL_VIDEO_ID)
         self.assertEqual(orig[8], SAMPLE_ROW[8])
- 
-    def test_run2_original_times_unchanged(self):
-        orig = next(r for r in self.rows_after_run2 if r[7] == ORIGINAL_VIDEO_ID)
+
+    def test_run2_irr_original_transcript_unchanged(self):
+        orig = next(r for r in self.irr_after_run2 if r[TCU_ID_COL] == ORIGINAL_VIDEO_ID)
+        self.assertEqual(orig[8], SAMPLE_ROW[8])
+
+    def test_run2_combined_original_times_unchanged(self):
+        orig = next(r for r in self.combined_after_run2 if r[TCU_ID_COL] == ORIGINAL_VIDEO_ID)
         self.assertEqual(orig[9], '1:28:41')
         self.assertEqual(orig[10], '1:29:02')
- 
-    def test_run2_new_ids_appended(self):
-        ids = [r[7] for r in self.rows_after_run2]
+
+    def test_run2_irr_original_times_unchanged(self):
+        orig = next(r for r in self.irr_after_run2 if r[TCU_ID_COL] == ORIGINAL_VIDEO_ID)
+        self.assertEqual(orig[9], '1:28:41')
+        self.assertEqual(orig[10], '1:29:02')
+
+    def test_run2_combined_new_ids_appended(self):
+        ids = [r[TCU_ID_COL] for r in self.combined_after_run2]
         for r in OTHER_ROWS:
-            self.assertIn(r[7], ids)
- 
-    def test_run2_no_duplicate_ids(self):
-        ids = [r[7] for r in self.rows_after_run2]
+            self.assertIn(r[TCU_ID_COL], ids)
+
+    def test_run2_irr_new_ids_appended(self):
+        ids = [r[TCU_ID_COL] for r in self.irr_after_run2]
+        for r in OTHER_ROWS:
+            self.assertIn(r[TCU_ID_COL], ids)
+
+    def test_run2_combined_no_duplicate_ids(self):
+        ids = [r[TCU_ID_COL] for r in self.combined_after_run2]
         self.assertEqual(len(ids), len(set(ids)))
- 
-    def test_run2_header_appears_only_once(self):
-        with open(self.path) as fh:
-            self.assertEqual(fh.read().count("video_id"), 1)
- 
-    def test_run2_rerun_same_original_no_duplicate(self):
-        write_rows_to_csv([SAMPLE_ROW], self.path)       # Run 3 — same id again
-        rows = _read_data_rows(self.path)
-        count = sum(1 for r in rows if r[7] == ORIGINAL_VIDEO_ID)
+
+    def test_run2_irr_no_duplicate_ids(self):
+        ids = [r[TCU_ID_COL] for r in self.irr_after_run2]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_run2_rerun_same_original_no_duplicate_combined(self):
+        """Run 3: re-submitting SAMPLE_ROW must not duplicate in combined."""
+        existing_ids = {r[TCU_ID_COL] for r in self.combined_after_run2}
+        self.mock_tcuids.side_effect = lambda filepath, email: set(existing_ids)
+
+        export_missing_tcus(USER_EMAIL, self._make_conn(), [SAMPLE_ROW], output_sub=self.output_sub)
+        rows = _read_data_rows(self.combined_path)
+        count = sum(1 for r in rows if r[TCU_ID_COL] == ORIGINAL_VIDEO_ID)
         self.assertEqual(count, 1)
- 
+
+    def test_run2_rerun_same_original_no_duplicate_irr(self):
+        """Run 3: re-submitting SAMPLE_ROW must not duplicate in irr."""
+        existing_ids = {r[TCU_ID_COL] for r in self.irr_after_run2}
+        self.mock_tcuids.side_effect = lambda filepath, email: set(existing_ids)
+
+        export_missing_tcus(USER_EMAIL, self._make_conn(), [SAMPLE_ROW], output_sub=self.output_sub)
+        rows = _read_data_rows(self.irr_path)
+        count = sum(1 for r in rows if r[TCU_ID_COL] == ORIGINAL_VIDEO_ID)
+        self.assertEqual(count, 1)
+
+
+if __name__ == '__main__':
+    unittest.main()
 
  
-if __name__ == "__main__":
-    unittest.main()
