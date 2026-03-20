@@ -355,14 +355,15 @@ def distribute_files_to_user(user_email, conn, output_sub = "annotation-human/ve
     except Exception as e:
         print(f"[DISTRIBUTION ERROR] user={user_email} | {e}")
         return False
+    
+
 if __name__ == "__main__":
+    ## retrieve all user annotations and it goes to db
+    ## iterate through each user and populate files for each user based on their unannotated TCUs in db
     pass
 
 
 """Todo: 
-    Review test cases
-    implement csv file to data branch
-    implement data to sql branch
     implement main function and do integration test
     set up cloud retrieval of csv and write
 """
