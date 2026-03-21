@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import csv
+from archivedscripts.automation import DB_PATH
 from helperfunctions import getIndex, time_to_seconds, extract_video_id, build_videoseg_id, getItem, getIndex, getRequiredFields
 
 
@@ -44,7 +45,6 @@ def validate_duration(row):
     end_sec = time_to_seconds(getItem(row, "tcu_end", "tcucsv"))
 
     if start_sec is None or end_sec is None:
-        print(f"[INVALID TIME FORMAT] row={row}")
         return False, "FORMAT"
 
     duration = end_sec - start_sec
@@ -52,7 +52,7 @@ def validate_duration(row):
     if duration <= 0 or duration > 60:
         print(f"[INVALID DURATION] | duration={duration} | row={row}")
         return False, "DURATION"
-    return True
+    return True, "None"
 
 def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
     try:
@@ -114,19 +114,23 @@ def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cu
         print(f"[DB ERROR] {user_email} | TCU={tcu_id} | {e}")
         return False
 
-def process_csv(user_email, file_path, DB_PATH, start_row=25):
+def process_csv(user_email, file_path, DB_PATH):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+    started = False
+    # try:
     with open(file_path, newline='', encoding='cp1252') as f:
         reader = csv.reader(f)
-        
+        annotation_count = 0
         #check annotation type based on required fields for the user
-
-        
         for i, row in enumerate(reader, start=1):
-            if i < start_row:
+            if row[0] == "original_row_number":
+                started = True
+                continue  # skip header
+            if not started:
                 continue
+            
+            
             
             # 1. Check Annotation
             # note for IRR 
@@ -134,15 +138,15 @@ def process_csv(user_email, file_path, DB_PATH, start_row=25):
             annotationtype = check_annotation_type(user_email, row)
             
             if annotationtype == "None":
-                print(f"[MISSING ANNOTATION] {user_email} | row={row}")
+                # print(f"[MISSING ANNOTATION] {user_email} | row={row}")
                 continue
-          
+        
             tcu_id = getItem(row, "tcu_id", "tcucsv")
 
             # 2. Check duplicate Annotation (Email, TCUID)
             
             if not check_duplicate_annotation(user_email, tcu_id, cursor):
-                print(f"[DUPLICATE ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
+                # print(f"[DUPLICATE ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
                 continue
             
             # 3. Validate duration (0 < duration <= 60)
@@ -163,17 +167,25 @@ def process_csv(user_email, file_path, DB_PATH, start_row=25):
         
             
             # 4. Ensure TCU exists
-            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor):
+            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
                 print(f"[FAILED TO INSERT TCU] {user_email} | TCU={tcu_id} | row={row}")
                 continue
             # 5. Insert Annotation (ONLY annotation fields)
+            
             annotation_id = f"{tcu_id}_{user_email}"
             if not insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
                 
                 print(f"[FAILED TO INSERT ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
-                continue            
-    conn.commit()
-
+                continue
+            
+        conn.commit()
+        print(f"[SUCCESS] Finished processing {file_path} for {user_email}, added {annotation_count} annotations to DB.")
+        conn.close()
+        return True
+    # except Exception as e:
+    #     print(f"[PROCESSING ERROR] {user_email} | file={file_path} | {e}")
+    #     conn.close()
+    #     return False
 
 def get_unannotated_tcus(user_email, conn):
     """
@@ -209,7 +221,7 @@ def get_unannotated_tcus(user_email, conn):
             LEFT JOIN Annotation a
                 ON t.TCUID = a.TCUID
                 AND a.Email = ?
-            WHERE a.TCUID IS NULL AND t.annotationtype != 'irr'
+            WHERE a.TCUID IS NULL
             ORDER BY vs.original_row_number, t.TCUID
         """, (user_email,))
         rows = []
@@ -294,23 +306,46 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
             return
 
         alias, pairemail = get_alias_from_email(user_email, conn)
+        user_dir = os.path.join(output_sub, alias)
+        
         if alias is None or pairemail is None:
             print(f"[ERROR] Could not retrieve alias/pair email for {user_email}")
             return
-
-        user_dir = os.path.join(output_sub, alias)
+        if pairemail == "" or pairemail is None:
+            print(f"[INFO] No pair email for {user_email}, skipping IRR export")
+            combined_output_file = os.path.join(user_dir, "combined_all.csv")
+            existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email)
+            if existing_tcuids_combined is None:
+                print(f"[ERROR] Could not read existing TCUIDs for {user_email}")
+                return
+            with open(combined_output_file, "a", newline='', encoding="cp1252") as f_combined:
+                writer_combined = csv.writer(f_combined)
+                new_combined = 0
+                for row in rows:
+                    tcu_id = row[getIndex("tcu_id", "tcucsv")]
+                    if tcu_id not in existing_tcuids_combined:
+                        writer_combined.writerow(row)
+                        existing_tcuids_combined.add(tcu_id)
+                        new_combined += 1
+            print(f"[SUCCESS] {user_email} | appended {new_combined} new complete TCUs")
+            return True
+        
+        pairs_alias, _ = get_alias_from_email(pairemail, conn)
         os.makedirs(user_dir, exist_ok=True)
 
         combined_output_file = os.path.join(user_dir, "combined_all.csv")
-        pair_output_file = os.path.join(user_dir, f"{pairemail}_irr.csv")
+        pair_output_file = os.path.join(user_dir, f"{pairs_alias}_irr.csv")
 
         existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email)
         existing_tcuids_irr = get_existing_tcuids_for_file(pair_output_file, user_email)
 
-        if existing_tcuids_combined is None or existing_tcuids_irr is None:
-            print(f"[ERROR] Could not read existing TCUIDs for {user_email}")
+        if existing_tcuids_combined is None:
+            print(f"[ERROR] Could not read existing combined TCUIDs for {user_email}")
             return
-        
+           
+        if existing_tcuids_irr is None:
+            print(f"[ERROR] Could not read existing IRR TCUIDs for {user_email}")
+            return
         
         # 2. Append only NEW rows
         with open(combined_output_file, "a", newline='', encoding="cp1252") as f_combined, \
@@ -338,8 +373,8 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
                     existing_tcuids_irr.add(tcu_id)
                     new_pair += 1
 
-        # print(f"[INFO] {user_email} | appended {new_combined} new complete TCUs")
-        # print(f"[INFO] {user_email} | appended {new_pair} new IRR TCUs")
+        print(f"[SUCCESS] {user_email} | appended {new_combined} new complete TCUs")
+        print(f"[SUCCESS] {user_email} | appended {new_pair} new IRR TCUs")
         return True
 
     except Exception as e:
@@ -347,20 +382,34 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
         return False
         
 
-def distribute_files_to_user(user_email, conn, output_sub = "annotation-human/version2"):
+def distribute_files_to_user(user_email, DB_PATH, output_sub = "annotation-human/version2"):
+    conn = sqlite3.connect(DB_PATH)
     try:
         rows = get_unannotated_tcus(user_email, conn)
         export_missing_tcus(user_email, conn, rows, output_sub)
+        conn.close()
         return True
     except Exception as e:
         print(f"[DISTRIBUTION ERROR] user={user_email} | {e}")
+        conn.close()
         return False
     
 
 if __name__ == "__main__":
     ## retrieve all user annotations and it goes to db
     ## iterate through each user and populate files for each user based on their unannotated TCUs in db
-    pass
+    users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
+            {"email": "xzx5141@psu.edu", "alias": "Xinyu", "pair_email": "sks7267@psu.edu"},
+            {"email": "sks7267@psu.edu", "alias": "Swara", "pair_email": "kkz5193@psu.edu"},
+            {"email": "lxb5609@psu.edu", "alias": "Luke", "pair_email": ""},
+            {"email": "jpg6390@psu.edu", "alias": "James", "pair_email": ""}
+    ]
+    for user in users:
+       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", "testdb/testdb.db")
+    
+    for user in users:
+        distribute_files_to_user(user["email"], "testdb/testdb.db")
+    
 
 
 """Todo: 

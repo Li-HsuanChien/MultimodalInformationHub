@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import csv
-from helperfunctions import time_to_seconds, extract_video_id, build_videoseg_id, getItem, getindex, getRequiredFields
+from helperfunctions import time_to_seconds, extract_video_id, build_videoseg_id, getItem, getIndex, getRequiredFields
 DB_PATH = "db/annotation.db"
 
 conn = sqlite3.connect(DB_PATH)

@@ -3,7 +3,8 @@ import os
 import sqlite3
 from helperfunctions import extract_video_id, build_videoseg_id
 
-DB_PATH = "db/annotation.db"
+# DB_PATH = "db/annotation.db"
+DB_PATH = "testdb/testdb.db"
 conn = sqlite3.connect(DB_PATH)
 
 
