@@ -1,7 +1,6 @@
 import sqlite3
 
-# DB_PATH = "db/annotation.db"
-DB_PATH = "testdb/testdb.db"
+DB_PATH = "db/annotation.db"
 
 conn = sqlite3.connect(DB_PATH)
 users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},

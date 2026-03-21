@@ -405,14 +405,13 @@ if __name__ == "__main__":
             {"email": "jpg6390@psu.edu", "alias": "James", "pair_email": ""}
     ]
     for user in users:
-       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", "testdb/testdb.db")
+       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", DB_PATH)
     
     for user in users:
-        distribute_files_to_user(user["email"], "testdb/testdb.db")
+        distribute_files_to_user(user["email"], DB_PATH)
     
 
 
 """Todo: 
-    implement main function and do integration test
     set up cloud retrieval of csv and write
 """
