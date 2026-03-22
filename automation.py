@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import csv
-from archivedscripts.automation import DB_PATH
+ 
 from helperfunctions import getIndex, time_to_seconds, extract_video_id, build_videoseg_id, getItem, getIndex, getRequiredFields
 
 
@@ -306,7 +306,7 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
             return
 
         alias, pairemail = get_alias_from_email(user_email, conn)
-        user_dir = os.path.join(output_sub, alias)
+        user_dir = os.path.join(output_sub, alias, "output")
         
         if alias is None or pairemail is None:
             print(f"[ERROR] Could not retrieve alias/pair email for {user_email}")
@@ -398,6 +398,7 @@ def distribute_files_to_user(user_email, DB_PATH, output_sub = "annotation-human
 if __name__ == "__main__":
     ## retrieve all user annotations and it goes to db
     ## iterate through each user and populate files for each user based on their unannotated TCUs in db
+    DB_PATH = "db/annotation.db"
     users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
             {"email": "xzx5141@psu.edu", "alias": "Xinyu", "pair_email": "sks7267@psu.edu"},
             {"email": "sks7267@psu.edu", "alias": "Swara", "pair_email": "kkz5193@psu.edu"},
@@ -405,7 +406,7 @@ if __name__ == "__main__":
             {"email": "jpg6390@psu.edu", "alias": "James", "pair_email": ""}
     ]
     for user in users:
-       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", DB_PATH)
+       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/input/{user['alias']}_annotation_file.csv", DB_PATH)
     
     for user in users:
         distribute_files_to_user(user["email"], DB_PATH)
@@ -414,4 +415,6 @@ if __name__ == "__main__":
 
 """Todo: 
     set up cloud retrieval of csv and write
+    plan rsync  cloud input to local input, local output to cloud output 
+    
 """
