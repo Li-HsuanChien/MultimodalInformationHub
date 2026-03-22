@@ -30,7 +30,7 @@ def read_csv_insert_videoseg_no_header(file_path = "annotation-human/version2/tr
             
 
             video_id = extract_video_id(video_url)
-            videoseg_id = build_videoseg_id(video_id, ai_mention_timestamp)
+            videoseg_id = build_videoseg_id(video_id, "0" + ai_mention_timestamp)
             try:
                 cursor.execute("""
                     INSERT OR IGNORE INTO VideoSegment (

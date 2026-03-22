@@ -19,7 +19,7 @@ def return_video_url(id):
 def build_videoseg_id(video_id, timestamp):
     return f"{video_id}-ai_{timestamp}"
 
-def getIndex(colName, dataType = "annotation"):
+def getIndex(colName, dataType = "tcucsv"):
     if dataType == "tcucsv":
         COL_IDX = {
             "original_row_number": 0,
@@ -76,6 +76,6 @@ def read_data_rows(path):
     
 
 def xlsx_to_csv(input_file, output_file):
-    df = pd.read_excel(input_file)
+    df = pd.read_excel(input_file, engine="openpyxl")
     df.to_csv(output_file, index=False, encoding="utf-8-sig")
 

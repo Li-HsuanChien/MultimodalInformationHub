@@ -43,7 +43,6 @@ def check_duplicate_annotation(user_email, tcu_id, cursor):
 def validate_duration(row):
     start_sec = time_to_seconds(getItem(row, "tcu_start", "tcucsv"))
     end_sec = time_to_seconds(getItem(row, "tcu_end", "tcucsv"))
-
     if start_sec is None or end_sec is None:
         return False, "FORMAT"
 
@@ -115,6 +114,9 @@ def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cu
         return False
 
 def process_csv(user_email, file_path, DB_PATH):
+    if not os.path.exists(file_path):
+        print(f"[ERROR] File not found for {user_email}: {file_path}")
+        return False
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     started = False
@@ -122,6 +124,8 @@ def process_csv(user_email, file_path, DB_PATH):
     with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
         annotation_count = 0
+        
+        
         #check annotation type based on required fields for the user
         for i, row in enumerate(reader, start=1):
             if row[0] == "original_row_number":
@@ -130,9 +134,13 @@ def process_csv(user_email, file_path, DB_PATH):
             if not started:
                 continue
             
+            for i in range(11):
+                if row[i] is None or row[i] == "":
+                    print(f"[MISSING REQUIRED FIELD] {user_email} | row={row}")
+                    continue
             
             
-            # 1. Check Annotation
+            # 1. Check Annotation 
             # note for IRR 
 
             annotationtype = check_annotation_type(user_email, row)
@@ -140,7 +148,7 @@ def process_csv(user_email, file_path, DB_PATH):
             if annotationtype == "None":
                 # print(f"[MISSING ANNOTATION] {user_email} | row={row}")
                 continue
-        
+                
             tcu_id = getItem(row, "tcu_id", "tcucsv")
 
             # 2. Check duplicate Annotation (Email, TCUID)
@@ -195,7 +203,7 @@ def get_unannotated_tcus(user_email, conn):
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            SELECT
+            SELECT 
                 vs.original_row_number,
                 vs.video_urlID,
                 vs.meeting_date,
@@ -218,11 +226,13 @@ def get_unannotated_tcus(user_email, conn):
                 t.tcu_adder_email
             FROM TCU t
             JOIN VideoSegment vs ON t.VIDEOSEGID = vs.ID
-            LEFT JOIN Annotation a
-                ON t.TCUID = a.TCUID
+            WHERE NOT EXISTS (
+                SELECT 1 
+                FROM Annotation a 
+                WHERE a.TCUID = t.TCUID 
                 AND a.Email = ?
-            WHERE a.TCUID IS NULL
-            ORDER BY vs.original_row_number, t.TCUID
+            )
+            ORDER BY vs.original_row_number, t.TCUID;
         """, (user_email,))
         rows = []
         for r in cursor.fetchall():
@@ -306,7 +316,7 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
             return
 
         alias, pairemail = get_alias_from_email(user_email, conn)
-        user_dir = os.path.join(output_sub, alias, "output")
+        user_dir = os.path.join(output_sub, alias)
         
         if alias is None or pairemail is None:
             print(f"[ERROR] Could not retrieve alias/pair email for {user_email}")
@@ -406,7 +416,7 @@ if __name__ == "__main__":
             {"email": "jpg6390@psu.edu", "alias": "James", "pair_email": ""}
     ]
     for user in users:
-       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/input/{user['alias']}_annotation_file.csv", DB_PATH)
+       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", DB_PATH)
     
     for user in users:
         distribute_files_to_user(user["email"], DB_PATH)
