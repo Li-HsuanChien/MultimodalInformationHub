@@ -414,7 +414,6 @@ if __name__ == "__main__":
 
 
 """Todo: 
-    set up cloud retrieval of csv and write
-    plan rsync  cloud input to local input, local output to cloud output 
+    set up globus roar to onedrive
     
 """

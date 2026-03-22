@@ -1,4 +1,3 @@
-#!/bin/bash
 
 set -e  # exit on error
 
@@ -8,11 +7,12 @@ if [ ! -d "venv" ]; then
     exit 1
 fi
 
-# 2. Activate venv
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# 3. Run script
+echo "Running fetch_and_convert_files.py..."
+python msDriveCommunication.py
+
 echo "Running automation.py..."
 python automation.py
 
