@@ -119,7 +119,7 @@ def process_csv(user_email, file_path, DB_PATH):
     cursor = conn.cursor()
     started = False
     # try:
-    with open(file_path, newline='', encoding='cp1252') as f:
+    with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
         annotation_count = 0
         #check annotation type based on required fields for the user
@@ -266,7 +266,7 @@ def create_file_if_not_exists(path):
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        with open(path, "w", newline='', encoding="cp1252") as f:
+        with open(path, "w", newline='', encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "original_row_number", "video_url", "meeting_date",
@@ -286,7 +286,7 @@ def get_existing_tcuids_for_file(file_path, user_email,  start_row=2):
     exisiting_id = set()
     create_file_if_not_exists(file_path)
     try:
-        with open(file_path, newline='', encoding="cp1252") as f:
+        with open(file_path, newline='', encoding="utf-8") as f:
             reader = csv.reader(f)
             for i, row in enumerate(reader, start=1):
                 if i < start_row:  
@@ -318,7 +318,7 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
             if existing_tcuids_combined is None:
                 print(f"[ERROR] Could not read existing TCUIDs for {user_email}")
                 return
-            with open(combined_output_file, "a", newline='', encoding="cp1252") as f_combined:
+            with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined:
                 writer_combined = csv.writer(f_combined)
                 new_combined = 0
                 for row in rows:
@@ -348,8 +348,8 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
             return
         
         # 2. Append only NEW rows
-        with open(combined_output_file, "a", newline='', encoding="cp1252") as f_combined, \
-     open(pair_output_file, "a", newline='', encoding="cp1252") as f_pair:
+        with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined, \
+     open(pair_output_file, "a", newline='', encoding="utf-8") as f_pair:
 
             writer_combined = csv.writer(f_combined)
             writer_pair = csv.writer(f_pair)

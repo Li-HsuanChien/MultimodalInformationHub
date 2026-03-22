@@ -1,27 +1,29 @@
 import requests
 import os
 from dotenv import load_dotenv
+from helperfunctions import xlsx_to_csv
 
 load_dotenv()
 
-tenant_id = os.getenv("TENANT_ID")
-client_id = os.getenv("CLIENT_ID")
-client_secret = os.getenv("CLIENT_SECRET")
-site_url = os.getenv("SITE_URL")
+def fetch_and_convert_files():
+    for user in ["James", "Kelly", "Luke", "Swara", "Xinyu"]:
+        file_url =os.path.join(os.getenv(f"{user}_FILE_URL"))
+        try:
+            if file_url != "":
+                file_dir = f"annotation-human/version2/{user}"
+                
+                os.makedirs(file_dir, exist_ok=True)
+                response = requests.get(file_url)
+                if response.status_code == 200:
+                    with open(f"{user}_file.xlsx", "wb") as f:
+                        f.write(response.content)
+                    xlsx_to_csv(f"{user}_file.xlsx", f"{file_dir}/{user}_annotation_file.csv")
+                    os.remove(f"{user}_file.xlsx")
+                    print(f"{user}'s file downloaded successfully.")
+                else:
+                    raise requests.RequestException(f"Failed to download {user}'s file. Status code: {response.status_code}")
+        except requests.RequestException as e:
+            print(f"Error occurred while fetching {user}'s file: {e}")
 
-# IMPORTANT: resource scope
-scope = f"{site_url}/.default"
-
-token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-
-data = {
-    "client_id": client_id,
-    "client_secret": client_secret,
-    "grant_type": "client_credentials",
-    "scope": scope
-}
-
-response = requests.post(token_url, data=data)
-token = response.json().get("access_token")
-
-print(token)
+if __name__ == "__main__":
+    fetch_and_convert_files()

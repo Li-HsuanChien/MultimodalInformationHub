@@ -1,4 +1,6 @@
 import csv
+import pandas as pd
+
 
 
 def time_to_seconds(t):
@@ -71,3 +73,9 @@ def read_data_rows(path):
         reader = csv.reader(fh)
         next(reader)
         return list(reader)
+    
+
+def xlsx_to_csv(input_file, output_file):
+    df = pd.read_excel(input_file)
+    df.to_csv(output_file, index=False, encoding="utf-8-sig")
+
