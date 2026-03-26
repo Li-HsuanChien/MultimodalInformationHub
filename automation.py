@@ -16,8 +16,9 @@ def check_annotation_type(user_email, row):
             continue  # Luke does not have IRR fields, so skip IRR check for him
 
         for field in getRequiredFields(user_email, annotationtypeOption):
-            # print(f"Checking field '{field}' for user '{user_email}' and annotation type '{annotationtypeOption}'")
-            if (getItem(row, field, "tcucsv") is not None )and (getItem(row, field, "tcucsv") != "NA") and (getItem(row, field, "tcucsv") != ""):
+            requiredItem = getItem(row, field, "tcucsv")
+            # print(f"Checking field '{field}' at index {getIndex(field)} for user '{user_email}' and annotation type '{annotationtypeOption}', which is {requiredItem} or {row[getIndex(field)]} at \n row{row}")
+            if (requiredItem is not None )and (requiredItem != "NA") and (requiredItem != ""):
                 annotationtype = annotationtypeOption
                 break
         if annotationtype != "None":
@@ -124,8 +125,8 @@ def process_csv(user_email, file_path, DB_PATH):
     with open(file_path, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
         annotation_count = 0
-        
-        
+        video_url = None
+        ai_mention_timestamp = None
         #check annotation type based on required fields for the user
         for i, row in enumerate(reader, start=1):
             if row[0] == "original_row_number":
@@ -134,19 +135,40 @@ def process_csv(user_email, file_path, DB_PATH):
             if not started:
                 continue
             
-            for i in range(11):
+            missing_video_data = False
+            missing_tcu_data = False
+            
+            for i in range(7):
+                #NO VIDEO INFO TO MISSING ARG ROW
                 if row[i] is None or row[i] == "":
-                    print(f"[MISSING REQUIRED FIELD] {user_email} | row={row}")
-                    continue
+                    missing_video_data = True
+                    break
             
+            for i in range(7, 11):
+                if row[i] is None or row[i] == "" or row[i] == "NA":
+                    #FOUND NO TCUID AND TIME, THINK ITS VIDEO SEG ROW
+                    missing_tcu_data = True
+                    break
             
+                        
+            if video_url == None and missing_video_data:
+                print(f"[MISSING VIDEOSEG Data] {user_email} | row={row}")
+                continue
+            elif not missing_video_data:
+                video_url = getItem(row, "video_url", "tcucsv")
+                ai_mention_timestamp = getItem(row, "ai_mention_timestamp", "tcucsv")
+                continue
+            elif missing_video_data and missing_tcu_data:
+                print(f"[MISSING FULL VIDEO INFO OR MISSING TCU INFO] {user_email} | row={row}")
+                continue
+                
             # 1. Check Annotation 
             # note for IRR 
 
             annotationtype = check_annotation_type(user_email, row)
             
-            if annotationtype == "None":
-                # print(f"[MISSING ANNOTATION] {user_email} | row={row}")
+            if annotationtype == "None" and not missing_tcu_data:
+                print(f"[MISSING ANNOTATION] {user_email} | row={row}")
                 continue
                 
             tcu_id = getItem(row, "tcu_id", "tcucsv")
@@ -168,9 +190,8 @@ def process_csv(user_email, file_path, DB_PATH):
                 continue
 
             # 4. Ensure VideoSegment exists Ignored since we populate videos first now
-
-            video_id = extract_video_id(getItem(row, "video_url", "tcucsv"))
-            mention_timestamp = getItem(row, "ai_mention_timestamp", "tcucsv")
+            video_id = extract_video_id(video_url)
+            mention_timestamp = ai_mention_timestamp
             videoseg_id = build_videoseg_id(video_id, mention_timestamp)
         
             
