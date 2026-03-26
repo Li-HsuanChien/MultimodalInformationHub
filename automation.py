@@ -409,11 +409,11 @@ if __name__ == "__main__":
     ## retrieve all user annotations and it goes to db
     ## iterate through each user and populate files for each user based on their unannotated TCUs in db
     DB_PATH = "db/annotation.db"
-    users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly", "pair_email": "xzx5141@psu.edu"},
-            {"email": "xzx5141@psu.edu", "alias": "Xinyu", "pair_email": "sks7267@psu.edu"},
-            {"email": "sks7267@psu.edu", "alias": "Swara", "pair_email": "kkz5193@psu.edu"},
-            {"email": "lxb5609@psu.edu", "alias": "Luke", "pair_email": ""},
-            {"email": "jpg6390@psu.edu", "alias": "James", "pair_email": ""}
+    users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly"},
+            {"email": "xzx5141@psu.edu", "alias": "Xinyu"},
+            {"email": "sks7267@psu.edu", "alias": "Swara"},
+            {"email": "lxb5609@psu.edu", "alias": "Luke"},
+            {"email": "jpg6390@psu.edu", "alias": "James"}
     ]
     for user in users:
        process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", DB_PATH)
@@ -425,5 +425,5 @@ if __name__ == "__main__":
 
 """Todo: 
     set up globus roar to onedrive
-    
+    formatting rule
 """
