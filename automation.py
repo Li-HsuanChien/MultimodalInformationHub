@@ -1,357 +1,384 @@
 import os
 import sqlite3
 import csv
- 
-from helperfunctions import getIndex, time_to_seconds, extract_video_id, build_videoseg_id, getItem, getIndex, getRequiredFields, alter_text_color
+
+from helperfunctions import (
+    getIndex, time_to_seconds, extract_video_id,
+    build_videoseg_id, getItem, getRequiredFields,
+)
+from logger import get_logger, alter_text_color
 
 
-def check_annotation_type(user_email, row):
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fmt(label: str, color: str, user_email: str | None = None, colorize: bool = True) -> str:
+    """
+    Build a formatted log prefix.
+    colorize=True  → ANSI codes (terminal)
+    colorize=False → plain text (file)  — but since we use PlainFormatter
+                     in the file handlers, escape codes would be stripped
+                     anyway; this keeps the message itself clean.
+    """
+    tag   = alter_text_color(label, color, colorize)
+    email = alter_text_color(user_email, "BLUE", colorize) if user_email else None
+    if email:
+        return f"{tag} user_email={email}"
+    return tag
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core functions  (logger passed in from process_csv / distribute_files_to_user)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_annotation_type(user_email: str, row, logger) -> str:
     if user_email == "" or row is None:
-        print(f"{alter_text_color('[MISSING Info]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} or row={row}")
+        logger.error(f"[MISSING INFO] user_email={user_email} or row={row}")
         return "None"
+
     for annotationtypeOption in ["irr", "common"]:
         annotationtype = "None"
 
         if annotationtypeOption == "irr" and user_email == "lxb5609@psu.edu":
-            continue  # Luke does not have IRR fields, so skip IRR check for him
+            continue  # Luke does not have IRR fields
 
         for field in getRequiredFields(user_email, annotationtypeOption):
             requiredItem = getItem(row, field, "tcucsv")
-            # print(f"Checking field '{field}' at index {getIndex(field)} for user '{user_email}' and annotation type '{annotationtypeOption}', which is {requiredItem} or {row[getIndex(field)]} at \n row{row}")
-            if (requiredItem is not None )and (requiredItem != "NA") and (requiredItem != ""):
+            if (requiredItem is not None) and (requiredItem != "NA") and (requiredItem != ""):
                 annotationtype = annotationtypeOption
                 break
         if annotationtype != "None":
             break
-                
 
     return annotationtype
 
-def check_duplicate_annotation(user_email, tcu_id, cursor):
-    try:
-        cursor.execute("""
-            SELECT 1 FROM Annotation
-            WHERE Email = ? AND TCUID = ?
-        """, (user_email, tcu_id))
 
+def check_duplicate_annotation(user_email: str, tcu_id: str, cursor, logger) -> bool:
+    try:
+        cursor.execute(
+            "SELECT 1 FROM Annotation WHERE Email = ? AND TCUID = ?",
+            (user_email, tcu_id),
+        )
         if cursor.fetchone():
             return False
         return True
     except sqlite3.Error as e:
-        print(f"{alter_text_color('[DB ERROR - Annotation CHECK]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
+        logger.error(f"[DB ERROR - Annotation CHECK] user_email={user_email} | TCU={tcu_id} | {e}")
         return False
-    
-def validate_duration(row):
+
+
+def validate_duration(row) -> tuple[bool, str]:
     start_sec = time_to_seconds(getItem(row, "tcu_start", "tcucsv"))
-    end_sec = time_to_seconds(getItem(row, "tcu_end", "tcucsv"))
+    end_sec   = time_to_seconds(getItem(row, "tcu_end",   "tcucsv"))
     if start_sec is None or end_sec is None:
         return False, "FORMAT"
-
     duration = end_sec - start_sec
-
-    if duration <= 0:
-        return False, "SHORT"
-    elif duration > 60:
-        return False, "LONG"
-        
+    if duration <= 0 or duration > 60:
+        return False, "DURATION"
     return True, "None"
 
-def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
+
+def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email: str, logger) -> bool:
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT OR IGNORE INTO TCU (
                 TCUID, VIDEOSEGID,
-                tcu_start, tcu_end, tcu_transcript, tcu_adder_email, video_saved, audio_saved, frames_saved
+                tcu_start, tcu_end, tcu_transcript, tcu_adder_email,
+                video_saved, audio_saved, frames_saved
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            tcu_id,
-            videoseg_id,
-            getItem(row, "tcu_start", "tcucsv"),
-            getItem(row, "tcu_end", "tcucsv"),
-            getItem(row, "tcu_transcript", "tcucsv"),
-            user_email,
-            False,  # video_saved
-            False,  # audio_saved   
-            False   # frames_saved
-        ))
+            """,
+            (
+                tcu_id,
+                videoseg_id,
+                getItem(row, "tcu_start",     "tcucsv"),
+                getItem(row, "tcu_end",       "tcucsv"),
+                getItem(row, "tcu_transcript","tcucsv"),
+                user_email,
+                False, False, False,
+            ),
+        )
         return True
     except sqlite3.Error as e:
-        print(f"{alter_text_color('[DB ERROR - TCU INSERT]', 'RED')} | user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
-        return False, e
-    
-def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
+        logger.error(f"[DB ERROR - TCU INSERT] user_email={user_email} | TCU={tcu_id} | {e}")
+        return False
+
+
+def insert_annotation(annotation_id, tcu_id, user_email: str, row, annotationtype, cursor, logger) -> bool:
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO Annotation (
-                AnnotationID,
-                TCUID,
-                Email,
-                speaker_role,
-                speaker_gender,
-                stance,
-                vocal_tone,
-                facial_expression,
-                coder_notes,
-                annotationtype       
+                AnnotationID, TCUID, Email,
+                speaker_role, speaker_gender, stance,
+                vocal_tone, facial_expression, coder_notes, annotationtype
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            annotation_id,
-            tcu_id,
-            user_email,
-            getItem(row, "speaker_role", "tcucsv"),
-            getItem(row, "speaker_gender", "tcucsv"),
-            getItem(row, "stance", "tcucsv"),
-            getItem(row, "vocal_tone", "tcucsv"),
-            getItem(row, "facial_expression", "tcucsv"),
-            getItem(row, "coder_notes", "tcucsv"),
-            annotationtype
-        ))
+            """,
+            (
+                annotation_id,
+                tcu_id,
+                user_email,
+                getItem(row, "speaker_role",      "tcucsv"),
+                getItem(row, "speaker_gender",     "tcucsv"),
+                getItem(row, "stance",             "tcucsv"),
+                getItem(row, "vocal_tone",         "tcucsv"),
+                getItem(row, "facial_expression",  "tcucsv"),
+                getItem(row, "coder_notes",        "tcucsv"),
+                annotationtype,
+            ),
+        )
         return True
-
     except sqlite3.IntegrityError as e:
-        print(f"{alter_text_color('[DB INTEGRITY ERROR]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
+        logger.error(f"[DB INTEGRITY ERROR] user_email={user_email} | TCU={tcu_id} | {e}")
         return False
-
     except sqlite3.Error as e:
-        print(f"{alter_text_color('[DB ERROR]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
+        logger.error(f"[DB ERROR] user_email={user_email} | TCU={tcu_id} | {e}")
         return False
 
-def process_csv(user_email, file_path, DB_PATH):
+
+# ─────────────────────────────────────────────────────────────────────────────
+# process_csv
+# ─────────────────────────────────────────────────────────────────────────────
+
+def process_csv(user_email: str, alias: str, file_path: str, DB_PATH: str) -> bool:
+    logger = get_logger(user_email, alias)
+
     if not os.path.exists(file_path):
-        print(f"{alter_text_color('[ERROR]', 'RED')} File not found for {alter_text_color(f'{user_email}', 'BLUE')}: {file_path}")
+        logger.error(f"[ERROR] File not found for user_email={user_email}: {file_path}")
         return False
-    conn = sqlite3.connect(DB_PATH)
+
+    conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     started = False
-    # try:
-    with open(file_path, newline='', encoding='utf-8') as f:
-        reader = csv.reader(f)
+
+    with open(file_path, newline="", encoding="utf-8") as f:
+        reader           = csv.reader(f)
         annotation_count = 0
-        video_url = None
+        video_url            = None
         ai_mention_timestamp = None
-        #check annotation type based on required fields for the user
+
         for i, row in enumerate(reader, start=1):
             if row[0] == "original_row_number":
                 started = True
-                continue  # skip header
+                continue
             if not started:
                 continue
-            
+
             missing_video_data = False
-            missing_tcu_data = False
-            
-            for i in range(7):
-                #NO VIDEO INFO TO MISSING ARG ROW
-                if row[i] is None or row[i] == "":
+            missing_tcu_data   = False
+
+            for j in range(7):
+                if row[j] is None or row[j] == "":
                     missing_video_data = True
                     break
-            
-            for i in range(7, 11):
-                if row[i] is None or row[i] == "" or row[i] == "NA":
-                    #FOUND NO TCUID AND TIME, THINK ITS VIDEO SEG ROW
+
+            for j in range(7, 11):
+                if row[j] is None or row[j] == "" or row[j] == "NA":
                     missing_tcu_data = True
                     break
-            
-                        
-            if video_url == None and missing_video_data:
-                print(f"{alter_text_color('[MISSING VIDEOSEG Data]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
+
+            if video_url is None and missing_video_data:
+                logger.error(f"[MISSING VIDEOSEG DATA] user_email={user_email} | row={row}")
                 continue
             elif not missing_video_data:
-                video_url = getItem(row, "video_url", "tcucsv")
+                video_url            = getItem(row, "video_url",            "tcucsv")
                 ai_mention_timestamp = getItem(row, "ai_mention_timestamp", "tcucsv")
                 continue
             elif missing_video_data and missing_tcu_data:
-                print(f"{alter_text_color('[MISSING FULL VIDEO INFO OR MISSING TCU INFO]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
+                logger.error(f"[MISSING FULL VIDEO INFO OR MISSING TCU INFO] user_email={user_email} | row={row}")
                 continue
-                
-            # 1. Check Annotation 
-            # note for IRR 
 
-            annotationtype = check_annotation_type(user_email, row)
-            
+            # 1. Check annotation type
+            annotationtype = check_annotation_type(user_email, row, logger)
             if annotationtype == "None" and not missing_tcu_data:
-                print(f"{alter_text_color('[MISSING ANNOTATION]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
+                logger.warning(f"[MISSING ANNOTATION] user_email={user_email} | row={row}")
                 continue
-                
+
             tcu_id = getItem(row, "tcu_id", "tcucsv")
 
-            # 2. Check duplicate Annotation (Email, TCUID)
-            
-            if not check_duplicate_annotation(user_email, tcu_id, cursor):
-                # print(f'[DUPLICATE ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
+            # 2. Check for duplicate annotation
+            if not check_duplicate_annotation(user_email, tcu_id, cursor, logger):
                 continue
-            
-            # 3. Validate duration (0 < duration <= 60)
+
+            # 3. Validate duration
             duration_valid, reason = validate_duration(row)
             if not duration_valid:
                 if reason == "FORMAT":
-                    print(f"{alter_text_color('[INVALID TIME FORMAT]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
-                elif reason == "SHORT":
-                    print(f"{alter_text_color('[INVALID DURATION - TCU length Shorter than 0 seconds]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
-                elif reason == "SHORT":
-                    print(f"{alter_text_color('[INVALID DURATION - TCU length Longer than 60 seconds]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
+                    logger.error(f"[INVALID TIME FORMAT] user_email={user_email} | row={row}")
+                elif reason == "DURATION":
+                    logger.error(f"[INVALID DURATION] user_email={user_email} | row={row}")
                 continue
 
-            # 4. Ensure VideoSegment exists Ignored since we populate videos first now
-            video_id = extract_video_id(video_url)
-            mention_timestamp = ai_mention_timestamp
-            videoseg_id = build_videoseg_id(video_id, mention_timestamp)
-        
-            
-            # 4. Ensure TCU exists
-            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
-                print(f"{alter_text_color('[FAILED TO INSERT TCU]', 'RED')} {alter_text_color(user_email, 'BLUE')} | TCU={tcu_id} | row={row}")
+            # 4. Resolve video / segment IDs
+            video_id      = extract_video_id(video_url)
+            videoseg_id   = build_videoseg_id(video_id, ai_mention_timestamp)
+
+            # 5. Ensure TCU exists
+            if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logger):
+                logger.error(f"[FAILED TO INSERT TCU] user_email={user_email} | TCU={tcu_id} | row={row}")
                 continue
-            # 5. Insert Annotation (ONLY annotation fields)
-            
+
+            # 6. Insert annotation
             annotation_id = f"{tcu_id}_{user_email}"
-            if not insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
-                print(f"{alter_text_color('[FAILED TO INSERT ANNOTATION]', 'RED')} {alter_text_color(user_email, 'BLUE')} | TCU={tcu_id} | row={row}")
+            if not insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor, logger):
+                logger.error(f"[FAILED TO INSERT ANNOTATION] user_email={user_email} | TCU={tcu_id} | row={row}")
                 continue
-            
-        conn.commit()
-        print(f"{alter_text_color('[SUCCESS]', 'GREEN')} Finished processing {file_path} for {alter_text_color(user_email, 'BLUE')}, added {annotation_count} annotations to DB.")
-        conn.close()
-        return True
-    # except Exception as e:
-    #     print(f'[PROCESSING ERROR] {user_email} | file={file_path} | {e}")
-    #     conn.close()
-    #     return False
 
-def get_unannotated_tcus(user_email, conn):
-    """
-    Returns full rows of unannotated TCUs for a given user,
-    including associated VideoSegment info.
-    """
+            annotation_count += 1
+
+    conn.commit()
+    conn.close()
+    logger.info(f"[SUCCESS] Finished processing {file_path} for user_email={user_email}, added {annotation_count} annotations to DB.")
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# get_unannotated_tcus
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_unannotated_tcus(user_email: str, conn, logger) -> list:
+    """Return full rows of unannotated TCUs for a given user."""
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT 
-                vs.original_row_number,
-                vs.video_urlID,
-                vs.meeting_date,
-                vs.ai_mention_timestamp,
-                vs.segment_start,
-                vs.segment_end,
+        cursor.execute(
+            """
+            SELECT
+                vs.original_row_number, vs.video_urlID, vs.meeting_date,
+                vs.ai_mention_timestamp, vs.segment_start, vs.segment_end,
                 vs.segment_transcript,
-                t.TCUID,
-                t.tcu_transcript,
-                t.tcu_start,
-                t.tcu_end,
-                NULL AS speaker_role,
-                NULL AS speaker_gender,
-                NULL AS stance,
-                NULL AS vocal_tone,
-                NULL AS facial_expression,
-                NULL AS coder_notes,
-                vs.State,
-                vs.County,
-                t.tcu_adder_email
+                t.TCUID, t.tcu_transcript, t.tcu_start, t.tcu_end,
+                NULL AS speaker_role, NULL AS speaker_gender, NULL AS stance,
+                NULL AS vocal_tone,   NULL AS facial_expression, NULL AS coder_notes,
+                vs.State, vs.County, t.tcu_adder_email
             FROM TCU t
             JOIN VideoSegment vs ON t.VIDEOSEGID = vs.ID
             WHERE NOT EXISTS (
-                SELECT 1 
-                FROM Annotation a 
-                WHERE a.TCUID = t.TCUID 
-                AND a.Email = ?
+                SELECT 1 FROM Annotation a
+                WHERE a.TCUID = t.TCUID AND a.Email = ?
             )
             ORDER BY vs.original_row_number, t.TCUID;
-        """, (user_email,))
+            """,
+            (user_email,),
+        )
         rows = []
         for r in cursor.fetchall():
             row_list = list(r)
-            for i in range(11, 17):
-                if row_list[i] is None:
-                    row_list[i] = ""
+            for k in range(11, 17):
+                if row_list[k] is None:
+                    row_list[k] = ""
             rows.append(row_list)
         return rows
     except sqlite3.Error as e:
-        print(f"{alter_text_color('[QUERY ERROR]', 'YELLOW')} user={alter_text_color(user_email, 'BLUE')} | {e}")
+        logger.warning(f"[QUERY ERROR] user_email={user_email} | {e}")
         return []
-    
-def get_alias_from_email(email, conn):
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# get_alias_from_email
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_alias_from_email(email: str, conn, logger) -> tuple[str | None, str | None]:
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT Alias, PairEmail
-            FROM "User"
-            WHERE Email = ?
-        """, (email,))
-
+        cursor.execute(
+            'SELECT Alias, PairEmail FROM "User" WHERE Email = ?',
+            (email,),
+        )
         result = cursor.fetchone()
-
         if result is None:
             raise ValueError(f"No user found for email: {email}")
-
         return result[0], result[1]
     except sqlite3.Error as e:
-        print(f"{alter_text_color('[DB ERROR - Get Alias]', 'RED')} email={alter_text_color(email, 'BLUE')} | {e}")
+        logger.error(f"[DB ERROR - Get Alias] email={email} | {e}")
         return None, None
-    
 
-def create_file_if_not_exists(path):
+
+# ─────────────────────────────────────────────────────────────────────────────
+# create_file_if_not_exists
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_file_if_not_exists(path: str, logger) -> bool:
     try:
         if os.path.exists(path):
-            return True  
+            return True
 
-        print(f"{alter_text_color('[INFO]', 'YELLOW')} No existing {path} found")
-        print(f"{alter_text_color('[INFO]', 'YELLOW')} Creating new {path}")
+        logger.info(f"[INFO] No existing file found at {path}")
+        logger.info(f"[INFO] Creating new file at {path}")
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        with open(path, "w", newline='', encoding="utf-8") as f:
+        with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "original_row_number", "video_url", "meeting_date",
                 "ai_mention_timestamp", "segment_start", "segment_end",
                 "segment_transcript", "tcu_id", "tcu_transcript",
                 "tcu_start", "tcu_end", "speaker_role", "speaker_gender",
-                "stance", "vocal_tone", "facial_expression", "coder_notes"
+                "stance", "vocal_tone", "facial_expression", "coder_notes",
             ])
-
-        return True  # successfully created
-
+        return True
     except Exception as e:
-        print(f"{alter_text_color('[FILE CREATE ERROR]', 'RED')} path={path} | {e}")
+        logger.error(f"[FILE CREATE ERROR] path={path} | {e}")
         return False
-    
-def get_existing_tcuids_for_file(file_path, user_email, start_row=2):
-    exisiting_id = set()
-    create_file_if_not_exists(file_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# get_existing_tcuids_for_file
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_existing_tcuids_for_file(file_path: str, user_email: str, logger, start_row: int = 2) -> set | None:
+    existing_ids = set()
+    create_file_if_not_exists(file_path, logger)
     try:
-        with open(file_path, newline='', encoding="utf-8") as f:
+        with open(file_path, newline="", encoding="utf-8") as f:
             reader = csv.reader(f)
             for i, row in enumerate(reader, start=1):
-                if i < start_row:  
+                if i < start_row:
                     continue
-                exisiting_id.add(row[getIndex("tcu_id", "tcucsv")])
-        return exisiting_id
+                existing_ids.add(row[getIndex("tcu_id", "tcucsv")])
+        return existing_ids
     except Exception as e:
-        print(f"{alter_text_color('[READ EXISTING ERROR]', 'RED')} user={alter_text_color(user_email, 'BLUE')} file={file_path} | {e}")
+        logger.error(f"[READ EXISTING ERROR] user_email={user_email} file={file_path} | {e}")
         return None
-    
-# rows = get_unannotated_tcus(user_email, conn)
 
-def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/version2"):
-    try:        
+
+# ─────────────────────────────────────────────────────────────────────────────
+# export_missing_tcus
+# ─────────────────────────────────────────────────────────────────────────────
+
+def export_missing_tcus(
+    user_email: str,
+    conn,
+    rows: list,
+    logger,
+    output_sub: str = "annotation-human/version2",
+) -> bool:
+    try:
         if not rows:
-            print(f"{alter_text_color('[INFO]', 'YELLOW')} No missing TCUs for {alter_text_color(user_email, 'BLUE')}")
-            return
+            logger.info(f"[INFO] No missing TCUs for user_email={user_email}")
+            return True
 
-        alias, pairemail = get_alias_from_email(user_email, conn)
-        user_dir = os.path.join(output_sub, alias)
-        
+        alias, pairemail = get_alias_from_email(user_email, conn, logger)
+
         if alias is None or pairemail is None:
-            print(f"{alter_text_color('[ERROR]', 'RED')} Could not retrieve alias/pair email for {alter_text_color(user_email, 'BLUE')}")
-            return
+            logger.error(f"[ERROR] Could not retrieve alias/pair email for user_email={user_email}")
+            return False
+
+        user_dir = os.path.join(output_sub, alias)
+
+        # ── No-pair branch ────────────────────────────────────────────────
         if pairemail == "" or pairemail is None:
-            print(f"{alter_text_color('[INFO]', 'YELLOW')} No pair email for {alter_text_color(user_email, 'BLUE')}, skipping IRR export")
-            combined_output_file = os.path.join(user_dir, "combined_all.csv")
-            existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email)
+            logger.info(f"[INFO] No pair email for user_email={user_email}, skipping IRR export")
+
+            combined_output_file    = os.path.join(user_dir, "combined_all.csv")
+            existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email, logger)
+
             if existing_tcuids_combined is None:
-                print(f"{alter_text_color('[ERROR]', 'RED')} Could not read existing TCUIDs for {alter_text_color(user_email, 'BLUE')}")
-                return
-            with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined:
+                logger.error(f"[ERROR] Could not read existing TCUIDs for user_email={user_email}")
+                return False
+
+            with open(combined_output_file, "a", newline="", encoding="utf-8") as f_combined:
                 writer_combined = csv.writer(f_combined)
                 new_combined = 0
                 for row in rows:
@@ -360,93 +387,109 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
                         writer_combined.writerow(row)
                         existing_tcuids_combined.add(tcu_id)
                         new_combined += 1
-            print(f"{alter_text_color('[SUCCESS]', 'GREEN')} {alter_text_color(user_email, 'BLUE')} | appended {new_combined} new complete TCUs")
+
+            logger.info(f"[SUCCESS] user_email={user_email} | appended {new_combined} new complete TCUs")
             return True
-        
-        pairs_alias, _ = get_alias_from_email(pairemail, conn)
+
+        # ── Paired branch ─────────────────────────────────────────────────
+        pairs_alias, _ = get_alias_from_email(pairemail, conn, logger)
         os.makedirs(user_dir, exist_ok=True)
 
         combined_output_file = os.path.join(user_dir, "combined_all.csv")
-        pair_output_file = os.path.join(user_dir, f"{pairs_alias}_irr.csv")
+        pair_output_file     = os.path.join(user_dir, f"{pairs_alias}_irr.csv")
 
-        existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email)
-        existing_tcuids_irr = get_existing_tcuids_for_file(pair_output_file, user_email)
+        existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email, logger)
+        existing_tcuids_irr      = get_existing_tcuids_for_file(pair_output_file,     user_email, logger)
 
         if existing_tcuids_combined is None:
-            print(f"{alter_text_color('[ERROR]', 'RED')} Could not read existing combined TCUIDs for {alter_text_color(user_email, 'BLUE')}")
-            return
-           
+            logger.error(f"[ERROR] Could not read existing combined TCUIDs for user_email={user_email}")
+            return False
         if existing_tcuids_irr is None:
-            print(f"{alter_text_color('[ERROR]', 'RED')} Could not read existing IRR TCUIDs for {alter_text_color(user_email, 'BLUE')}")
-            return
-        
-        # 2. Append only NEW rows
-        with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined, \
-     open(pair_output_file, "a", newline='', encoding="utf-8") as f_pair:
+            logger.error(f"[ERROR] Could not read existing IRR TCUIDs for user_email={user_email}")
+            return False
 
+        with (
+            open(combined_output_file, "a", newline="", encoding="utf-8") as f_combined,
+            open(pair_output_file,     "a", newline="", encoding="utf-8") as f_pair,
+        ):
             writer_combined = csv.writer(f_combined)
-            writer_pair = csv.writer(f_pair)
-
-            new_combined = 0
-            new_pair = 0
+            writer_pair     = csv.writer(f_pair)
+            new_combined = new_pair = 0
 
             for row in rows:
-                tcu_id = row[getIndex("tcu_id", "tcucsv")]
+                tcu_id          = row[getIndex("tcu_id",          "tcucsv")]
                 tcu_adder_email = row[getIndex("tcu_adder_email", "tcucsv")]
 
-                # write to combined
                 if tcu_id not in existing_tcuids_combined:
                     writer_combined.writerow(row)
                     existing_tcuids_combined.add(tcu_id)
                     new_combined += 1
 
-                # write to pair file
                 if tcu_adder_email == pairemail and tcu_id not in existing_tcuids_irr:
                     writer_pair.writerow(row)
                     existing_tcuids_irr.add(tcu_id)
                     new_pair += 1
 
-        print(f"{alter_text_color('[SUCCESS]', 'GREEN')} {alter_text_color(user_email, 'BLUE')} | appended {new_combined} new complete TCUs")
-        print(f"{alter_text_color('[SUCCESS]', 'GREEN')} {alter_text_color(user_email, 'BLUE')} | appended {new_pair} new IRR TCUs")
+        logger.info(f"[SUCCESS] user_email={user_email} | appended {new_combined} new complete TCUs")
+        logger.info(f"[SUCCESS] user_email={user_email} | appended {new_pair} new IRR TCUs")
         return True
 
     except Exception as e:
-        print(f"{alter_text_color('[EXPORT ERROR]', 'RED')} user={alter_text_color(user_email, 'BLUE')} | {e}")
+        logger.error(f"[EXPORT ERROR] user_email={user_email} | {e}")
         return False
-        
 
-def distribute_files_to_user(user_email, DB_PATH, output_sub = "annotation-human/version2"):
-    conn = sqlite3.connect(DB_PATH)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# distribute_files_to_user
+# ─────────────────────────────────────────────────────────────────────────────
+
+def distribute_files_to_user(
+    user_email: str,
+    alias: str,
+    DB_PATH: str,
+    output_sub: str = "annotation-human/version2",
+) -> bool:
+    logger = get_logger(user_email, alias)
+    conn   = sqlite3.connect(DB_PATH)
     try:
-        rows = get_unannotated_tcus(user_email, conn)
-        export_missing_tcus(user_email, conn, rows, output_sub)
+        rows = get_unannotated_tcus(user_email, conn, logger)
+        export_missing_tcus(user_email, conn, rows, logger, output_sub)
         conn.close()
         return True
     except Exception as e:
-        print(f"{alter_text_color('[DISTRIBUTION ERROR]', 'RED')} user={alter_text_color(user_email, 'BLUE')} | {e}")
+        logger.error(f"[DISTRIBUTION ERROR] user_email={user_email} | {e}")
         conn.close()
         return False
-    
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    ## retrieve all user annotations and it goes to db
-    ## iterate through each user and populate files for each user based on their unannotated TCUs in db
     DB_PATH = "db/annotation.db"
-    users = [   {"email": "kkz5193@psu.edu", "alias": "Kelly"},
-            {"email": "xzx5141@psu.edu", "alias": "Xinyu"},
-            {"email": "sks7267@psu.edu", "alias": "Swara"},
-            {"email": "lxb5609@psu.edu", "alias": "Luke"},
-            {"email": "jpg6390@psu.edu", "alias": "James"}
+
+    users = [
+        {"email": "kkz5193@psu.edu", "alias": "Kelly"},
+        {"email": "xzx5141@psu.edu", "alias": "Xinyu"},
+        {"email": "sks7267@psu.edu", "alias": "Swara"},
+        {"email": "lxb5609@psu.edu", "alias": "Luke"},
+        {"email": "jpg6390@psu.edu", "alias": "James"},
     ]
+
     for user in users:
-       process_csv(user["email"], f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv", DB_PATH)
-    
+        process_csv(
+            user["email"],
+            user["alias"],
+            f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv",
+            DB_PATH,
+        )
+
     for user in users:
-        distribute_files_to_user(user["email"], DB_PATH)
-    
+        distribute_files_to_user(user["email"], user["alias"], DB_PATH)
 
 
-"""Todo: 
+"""Todo:
     set up globus roar to onedrive
-    automate invalid input notification to user
+    formatting rule
 """
