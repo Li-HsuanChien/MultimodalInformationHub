@@ -2,7 +2,7 @@ import csv
 import pandas as pd
 import re
 
-def normalize_time(t: str) -> str | None:
+def normalize_time(t):
     """
     Accepts any of these formats and returns HH:MM:SS:
       "1:14:56"
