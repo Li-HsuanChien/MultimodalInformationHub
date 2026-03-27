@@ -1,6 +1,53 @@
 import csv
 import pandas as pd
+import re
 
+def normalize_time(t: str) -> str | None:
+    """
+    Accepts any of these formats and returns HH:MM:SS:
+      "1:14:56"
+      "01:14:56"
+      "14:56"
+      "0 days 01:16:38"
+      "1 days 01:16:38"
+      "0 days 00:05:23.500000"
+      "" / None / "NA"
+    Returns None if unparseable.
+    """
+    if t is None:
+        return None
+
+    t = str(t).strip()
+
+    if t == "" or t.lower() == "na":
+        return None
+
+    # Strip pandas timedelta prefix: "0 days 01:16:38"
+    days = 0
+    days_match = re.match(r"(-?\d+)\s+days?\s+(.*)", t, re.IGNORECASE)
+    if days_match:
+        days = int(days_match.group(1))
+        t    = days_match.group(2).strip()
+
+    # Strip sub-seconds: "01:16:38.500000" → "01:16:38"
+    t = re.sub(r"\.\d+$", "", t)
+
+    # Parse HH:MM:SS or MM:SS
+    parts = t.split(":")
+    try:
+        if len(parts) == 3:
+            h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+        elif len(parts) == 2:
+            h, m, s = 0, int(parts[0]), int(parts[1])
+        else:
+            return None
+    except ValueError:
+        return None
+
+    # Roll up days into hours
+    h += days * 24
+
+    return f"{h:02}:{m:02}:{s:02}"
 
 
 def time_to_seconds(t):
