@@ -79,3 +79,13 @@ def xlsx_to_csv(input_file, output_file):
     df = pd.read_excel(input_file, engine="openpyxl")
     df.to_csv(output_file, index=False, encoding="utf-8-sig")
 
+
+def alter_text_color(text, color):
+    RESET = "\033[0m"
+    mp = {
+        "RED": "\033[1;31m",
+        "GREEN": "\033[1;32m",
+        "YELLOW": "\033[1;33m",
+        "BLUE": "\033[1;34m"
+    }
+    return f"{mp[color]}{text}{RESET}"

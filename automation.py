@@ -2,12 +2,12 @@ import os
 import sqlite3
 import csv
  
-from helperfunctions import getIndex, time_to_seconds, extract_video_id, build_videoseg_id, getItem, getIndex, getRequiredFields
+from helperfunctions import getIndex, time_to_seconds, extract_video_id, build_videoseg_id, getItem, getIndex, getRequiredFields, alter_text_color
 
 
 def check_annotation_type(user_email, row):
     if user_email == "" or row is None:
-        print(f"[MISSING USER EMAIL] or row={row}")
+        print(f"{alter_text_color('[MISSING Info]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} or row={row}")
         return "None"
     for annotationtypeOption in ["irr", "common"]:
         annotationtype = "None"
@@ -38,7 +38,7 @@ def check_duplicate_annotation(user_email, tcu_id, cursor):
             return False
         return True
     except sqlite3.Error as e:
-        print(f"[DB ERROR - Annotation CHECK] {user_email} | TCU={tcu_id} | {e}")
+        print(f"{alter_text_color('[DB ERROR - Annotation CHECK]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
         return False
     
 def validate_duration(row):
@@ -50,7 +50,6 @@ def validate_duration(row):
     duration = end_sec - start_sec
 
     if duration <= 0 or duration > 60:
-        print(f"[INVALID DURATION] | duration={duration} | row={row}")
         return False, "DURATION"
     return True, "None"
 
@@ -74,8 +73,8 @@ def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
         ))
         return True
     except sqlite3.Error as e:
-        print(f"[DB ERROR - TCU INSERT]  | TCU={tcu_id} | {e}")
-        return False
+        print(f"{alter_text_color('[DB ERROR - TCU INSERT]', 'RED')} | user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
+        return False, e
     
 def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
     try:
@@ -107,16 +106,16 @@ def insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cu
         return True
 
     except sqlite3.IntegrityError as e:
-        print(f"[DB INTEGRITY ERROR] {user_email} | TCU={tcu_id} | {e}")
+        print(f"{alter_text_color('[DB INTEGRITY ERROR]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
         return False
 
     except sqlite3.Error as e:
-        print(f"[DB ERROR] {user_email} | TCU={tcu_id} | {e}")
+        print(f"{alter_text_color('[DB ERROR]', 'RED')} user_email = {alter_text_color(f'{user_email}', 'BLUE')} | TCU={tcu_id} | {e}")
         return False
 
 def process_csv(user_email, file_path, DB_PATH):
     if not os.path.exists(file_path):
-        print(f"[ERROR] File not found for {user_email}: {file_path}")
+        print(f"{alter_text_color('[ERROR]', 'RED')} File not found for {alter_text_color(f'{user_email}', 'BLUE')}: {file_path}")
         return False
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -152,14 +151,14 @@ def process_csv(user_email, file_path, DB_PATH):
             
                         
             if video_url == None and missing_video_data:
-                print(f"[MISSING VIDEOSEG Data] {user_email} | row={row}")
+                print(f"{alter_text_color('[MISSING VIDEOSEG Data]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
                 continue
             elif not missing_video_data:
                 video_url = getItem(row, "video_url", "tcucsv")
                 ai_mention_timestamp = getItem(row, "ai_mention_timestamp", "tcucsv")
                 continue
             elif missing_video_data and missing_tcu_data:
-                print(f"[MISSING FULL VIDEO INFO OR MISSING TCU INFO] {user_email} | row={row}")
+                print(f"{alter_text_color('[MISSING FULL VIDEO INFO OR MISSING TCU INFO]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
                 continue
                 
             # 1. Check Annotation 
@@ -168,7 +167,7 @@ def process_csv(user_email, file_path, DB_PATH):
             annotationtype = check_annotation_type(user_email, row)
             
             if annotationtype == "None" and not missing_tcu_data:
-                print(f"[MISSING ANNOTATION] {user_email} | row={row}")
+                print(f"{alter_text_color('[MISSING ANNOTATION]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
                 continue
                 
             tcu_id = getItem(row, "tcu_id", "tcucsv")
@@ -176,16 +175,16 @@ def process_csv(user_email, file_path, DB_PATH):
             # 2. Check duplicate Annotation (Email, TCUID)
             
             if not check_duplicate_annotation(user_email, tcu_id, cursor):
-                # print(f"[DUPLICATE ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
+                # print(f'[DUPLICATE ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
                 continue
             
             # 3. Validate duration (0 < duration <= 60)
             duration_valid, reason = validate_duration(row)
             if not duration_valid:
                 if reason == "FORMAT":
-                    print(f"[INVALID TIME FORMAT] {user_email} | row={row}")
+                    print(f"{alter_text_color('[INVALID TIME FORMAT]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
                 elif reason == "DURATION":
-                    print(f"[INVALID DURATION] {user_email} | row={row}")
+                    print(f"{alter_text_color('[INVALID DURATION]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
                 # TODO: automate invalid input notification to user
                 continue
 
@@ -197,22 +196,21 @@ def process_csv(user_email, file_path, DB_PATH):
             
             # 4. Ensure TCU exists
             if not insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
-                print(f"[FAILED TO INSERT TCU] {user_email} | TCU={tcu_id} | row={row}")
+                print(f"{alter_text_color('[FAILED TO INSERT TCU]', 'RED')} {alter_text_color(user_email, 'BLUE')} | TCU={tcu_id} | row={row}")
                 continue
             # 5. Insert Annotation (ONLY annotation fields)
             
             annotation_id = f"{tcu_id}_{user_email}"
             if not insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor):
-                
-                print(f"[FAILED TO INSERT ANNOTATION] {user_email} | TCU={tcu_id} | row={row}")
+                print(f"{alter_text_color('[FAILED TO INSERT ANNOTATION]', 'RED')} {alter_text_color(user_email, 'BLUE')} | TCU={tcu_id} | row={row}")
                 continue
             
         conn.commit()
-        print(f"[SUCCESS] Finished processing {file_path} for {user_email}, added {annotation_count} annotations to DB.")
+        print(f"{alter_text_color('[SUCCESS]', 'GREEN')} Finished processing {file_path} for {alter_text_color(user_email, 'BLUE')}, added {annotation_count} annotations to DB.")
         conn.close()
         return True
     # except Exception as e:
-    #     print(f"[PROCESSING ERROR] {user_email} | file={file_path} | {e}")
+    #     print(f'[PROCESSING ERROR] {user_email} | file={file_path} | {e}")
     #     conn.close()
     #     return False
 
@@ -264,7 +262,7 @@ def get_unannotated_tcus(user_email, conn):
             rows.append(row_list)
         return rows
     except sqlite3.Error as e:
-        print(f"[QUERY ERROR] user={user_email} | {e}")
+        print(f"{alter_text_color('[QUERY ERROR]', 'YELLOW')} user={alter_text_color(user_email, 'BLUE')} | {e}")
         return []
     
 def get_alias_from_email(email, conn):
@@ -283,7 +281,7 @@ def get_alias_from_email(email, conn):
 
         return result[0], result[1]
     except sqlite3.Error as e:
-        print(f"[DB ERROR - Get Alias] email={email} | {e}")
+        print(f"{alter_text_color('[DB ERROR - Get Alias]', 'RED')} email={alter_text_color(email, 'BLUE')} | {e}")
         return None, None
     
 
@@ -292,8 +290,8 @@ def create_file_if_not_exists(path):
         if os.path.exists(path):
             return True  
 
-        print(f"No existing {path} found")
-        print(f"Creating new {path}")
+        print(f"{alter_text_color('[INFO]', 'YELLOW')} No existing {path} found")
+        print(f"{alter_text_color('[INFO]', 'YELLOW')} Creating new {path}")
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -310,10 +308,10 @@ def create_file_if_not_exists(path):
         return True  # successfully created
 
     except Exception as e:
-        print(f"[FILE CREATE ERROR] path={path} | {e}")
+        print(f"{alter_text_color('[FILE CREATE ERROR]', 'RED')} path={path} | {e}")
         return False
     
-def get_existing_tcuids_for_file(file_path, user_email,  start_row=2):
+def get_existing_tcuids_for_file(file_path, user_email, start_row=2):
     exisiting_id = set()
     create_file_if_not_exists(file_path)
     try:
@@ -325,7 +323,7 @@ def get_existing_tcuids_for_file(file_path, user_email,  start_row=2):
                 exisiting_id.add(row[getIndex("tcu_id", "tcucsv")])
         return exisiting_id
     except Exception as e:
-        print(f"[READ EXISTING ERROR] user={user_email} file={file_path} | {e}")
+        print(f"{alter_text_color('[READ EXISTING ERROR]', 'RED')} user={alter_text_color(user_email, 'BLUE')} file={file_path} | {e}")
         return None
     
 # rows = get_unannotated_tcus(user_email, conn)
@@ -333,21 +331,21 @@ def get_existing_tcuids_for_file(file_path, user_email,  start_row=2):
 def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/version2"):
     try:        
         if not rows:
-            print(f"[INFO] No missing TCUs for {user_email}")
+            print(f"{alter_text_color('[INFO]', 'YELLOW')} No missing TCUs for {alter_text_color(user_email, 'BLUE')}")
             return
 
         alias, pairemail = get_alias_from_email(user_email, conn)
         user_dir = os.path.join(output_sub, alias)
         
         if alias is None or pairemail is None:
-            print(f"[ERROR] Could not retrieve alias/pair email for {user_email}")
+            print(f"{alter_text_color('[ERROR]', 'RED')} Could not retrieve alias/pair email for {alter_text_color(user_email, 'BLUE')}")
             return
         if pairemail == "" or pairemail is None:
-            print(f"[INFO] No pair email for {user_email}, skipping IRR export")
+            print(f"{alter_text_color('[INFO]', 'YELLOW')} No pair email for {alter_text_color(user_email, 'BLUE')}, skipping IRR export")
             combined_output_file = os.path.join(user_dir, "combined_all.csv")
             existing_tcuids_combined = get_existing_tcuids_for_file(combined_output_file, user_email)
             if existing_tcuids_combined is None:
-                print(f"[ERROR] Could not read existing TCUIDs for {user_email}")
+                print(f"{alter_text_color('[ERROR]', 'RED')} Could not read existing TCUIDs for {alter_text_color(user_email, 'BLUE')}")
                 return
             with open(combined_output_file, "a", newline='', encoding="utf-8") as f_combined:
                 writer_combined = csv.writer(f_combined)
@@ -358,7 +356,7 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
                         writer_combined.writerow(row)
                         existing_tcuids_combined.add(tcu_id)
                         new_combined += 1
-            print(f"[SUCCESS] {user_email} | appended {new_combined} new complete TCUs")
+            print(f"{alter_text_color('[SUCCESS]', 'GREEN')} {alter_text_color(user_email, 'BLUE')} | appended {new_combined} new complete TCUs")
             return True
         
         pairs_alias, _ = get_alias_from_email(pairemail, conn)
@@ -371,11 +369,11 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
         existing_tcuids_irr = get_existing_tcuids_for_file(pair_output_file, user_email)
 
         if existing_tcuids_combined is None:
-            print(f"[ERROR] Could not read existing combined TCUIDs for {user_email}")
+            print(f"{alter_text_color('[ERROR]', 'RED')} Could not read existing combined TCUIDs for {alter_text_color(user_email, 'BLUE')}")
             return
            
         if existing_tcuids_irr is None:
-            print(f"[ERROR] Could not read existing IRR TCUIDs for {user_email}")
+            print(f"{alter_text_color('[ERROR]', 'RED')} Could not read existing IRR TCUIDs for {alter_text_color(user_email, 'BLUE')}")
             return
         
         # 2. Append only NEW rows
@@ -404,12 +402,12 @@ def export_missing_tcus(user_email, conn, rows, output_sub = "annotation-human/v
                     existing_tcuids_irr.add(tcu_id)
                     new_pair += 1
 
-        print(f"[SUCCESS] {user_email} | appended {new_combined} new complete TCUs")
-        print(f"[SUCCESS] {user_email} | appended {new_pair} new IRR TCUs")
+        print(f"{alter_text_color('[SUCCESS]', 'GREEN')} {alter_text_color(user_email, 'BLUE')} | appended {new_combined} new complete TCUs")
+        print(f"{alter_text_color('[SUCCESS]', 'GREEN')} {alter_text_color(user_email, 'BLUE')} | appended {new_pair} new IRR TCUs")
         return True
 
     except Exception as e:
-        print(f"[EXPORT ERROR] user={user_email} | {e}")
+        print(f"{alter_text_color('[EXPORT ERROR]', 'RED')} user={alter_text_color(user_email, 'BLUE')} | {e}")
         return False
         
 
@@ -421,7 +419,7 @@ def distribute_files_to_user(user_email, DB_PATH, output_sub = "annotation-human
         conn.close()
         return True
     except Exception as e:
-        print(f"[DISTRIBUTION ERROR] user={user_email} | {e}")
+        print(f"{alter_text_color('[DISTRIBUTION ERROR]', 'RED')} user={alter_text_color(user_email, 'BLUE')} | {e}")
         conn.close()
         return False
     
@@ -446,5 +444,4 @@ if __name__ == "__main__":
 
 """Todo: 
     set up globus roar to onedrive
-    formatting rule
 """
