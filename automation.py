@@ -49,8 +49,11 @@ def validate_duration(row):
 
     duration = end_sec - start_sec
 
-    if duration <= 0 or duration > 60:
-        return False, "DURATION"
+    if duration <= 0:
+        return False, "SHORT"
+    elif duration > 60:
+        return False, "LONG"
+        
     return True, "None"
 
 def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email):
@@ -183,9 +186,10 @@ def process_csv(user_email, file_path, DB_PATH):
             if not duration_valid:
                 if reason == "FORMAT":
                     print(f"{alter_text_color('[INVALID TIME FORMAT]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
-                elif reason == "DURATION":
-                    print(f"{alter_text_color('[INVALID DURATION]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
-                # TODO: automate invalid input notification to user
+                elif reason == "SHORT":
+                    print(f"{alter_text_color('[INVALID DURATION - TCU length Shorter than 0 seconds]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
+                elif reason == "SHORT":
+                    print(f"{alter_text_color('[INVALID DURATION - TCU length Longer than 60 seconds]', 'RED')} {alter_text_color(user_email, 'BLUE')} | row={row}")
                 continue
 
             # 4. Ensure VideoSegment exists Ignored since we populate videos first now
@@ -444,4 +448,5 @@ if __name__ == "__main__":
 
 """Todo: 
     set up globus roar to onedrive
+    automate invalid input notification to user
 """
