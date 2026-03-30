@@ -144,3 +144,9 @@ def table_file_to_csv(input_file, output_file):
         raise ValueError(
             f"{input_file} is neither a valid Excel nor CSV file: {e}"
         )
+    
+def getPartnerAlias(UserAlias):
+    users = {"Kelly": "Xinyu",
+            "Xinyu": "Swara",
+            "Swara": "Kelly"}
+    return users.get(UserAlias, "")

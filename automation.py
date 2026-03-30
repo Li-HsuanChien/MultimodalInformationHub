@@ -458,11 +458,11 @@ if __name__ == "__main__":
     DB_PATH = "db/annotation.db"
 
     users = [
-        {"email": "kkz5193@psu.edu", "alias": "Kelly"},
-        {"email": "xzx5141@psu.edu", "alias": "Xinyu"},
-        {"email": "sks7267@psu.edu", "alias": "Swara"},
-        {"email": "lxb5609@psu.edu", "alias": "Luke"},
-        {"email": "jpg6390@psu.edu", "alias": "James"},
+        {"email": "kkz5193@psu.edu", "alias": "Kelly", "partner": "Xinyu"},
+        {"email": "xzx5141@psu.edu", "alias": "Xinyu", "partner": "Swara"},
+        {"email": "sks7267@psu.edu", "alias": "Swara", "partner": "Kelly"},
+        {"email": "lxb5609@psu.edu", "alias": "Luke", "partner": ""},
+        {"email": "jpg6390@psu.edu", "alias": "James", "partner": ""},
     ]
 
     for user in users:
@@ -472,6 +472,20 @@ if __name__ == "__main__":
             f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv",
             DB_PATH,
         )
+        process_csv(
+            user["email"],
+            user["alias"],
+            f"annotation-human/version2/{user['alias']}/combined_all.csv",
+            DB_PATH,
+        )
+        if user["partner"] != "":
+            process_csv(
+                user["email"],
+                user["alias"],
+                f"annotation-human/version2/{user['alias']}/{user['alias']}_irr_file.csv",
+                DB_PATH,
+            )
+    
 
     for user in users:
         distribute_files_to_user(user["email"], user["alias"], DB_PATH)
