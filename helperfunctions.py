@@ -1,6 +1,8 @@
 import csv
 import pandas as pd
 import re
+from pathlib import Path
+
 
 def normalize_time(t):
     """
@@ -122,6 +124,23 @@ def read_data_rows(path):
         return list(reader)
     
 
-def xlsx_to_csv(input_file, output_file):
-    df = pd.read_excel(input_file, engine="openpyxl")
-    df.to_csv(output_file, index=False, encoding="utf-8-sig")
+def table_file_to_csv(input_file, output_file):
+    input_path = Path(input_file)
+
+    # First: try reading as Excel (real xlsx/xls)
+    try:
+        df = pd.read_excel(input_path, engine="openpyxl")
+        df.to_csv(output_file, index=False, encoding="utf-8-sig")
+        return
+    except Exception:
+        pass
+
+    # Second: try reading as CSV
+    try:
+        df = pd.read_csv(input_path)
+        df.to_csv(output_file, index=False, encoding="utf-8-sig")
+        return
+    except Exception as e:
+        raise ValueError(
+            f"{input_file} is neither a valid Excel nor CSV file: {e}"
+        )
