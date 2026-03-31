@@ -10,9 +10,8 @@ def fetch_and_convert_files():
         main_file_url =os.path.join(os.getenv(f"{user}_FILE_URL"))
         file_dir = f"annotation-human/version2/{user}"
         os.makedirs(file_dir, exist_ok=True)
-
         try:
-            if main_file_url != "" or main_file_url is not None:                
+            if main_file_url != "" and main_file_url is not None:                
                 response = requests.get(main_file_url)
                 if response.status_code == 200:
                     with open(f"{user}_file.xlsx", "wb") as f:
@@ -28,9 +27,8 @@ def fetch_and_convert_files():
             print(f"Error occurred while fetching {user}'s main file: {e}")
         
         combined_file_url = os.getenv(f"{user}_COMBINED_URL")
-
         try:
-            if combined_file_url != "" or combined_file_url is not None:                
+            if combined_file_url != "" and combined_file_url is not None:                
                 response = requests.get(combined_file_url)
                 if response.status_code == 200:
                     with open(f"{user}_combined_all.xlsx", "wb") as f:
@@ -48,7 +46,7 @@ def fetch_and_convert_files():
         if user in ["Kelly", "Swara", "Xinyu"]:
             irr_file_url = os.getenv(f"{user}_IRR_URL")
             try:
-                if irr_file_url != "" or irr_file_url is not None:
+                if irr_file_url != "" and irr_file_url is not None:
                     response = requests.get(irr_file_url)
                     if response.status_code == 200:
                         with open(f"{getPartnerAlias(user)}_irr.xlsx", "wb") as f:
