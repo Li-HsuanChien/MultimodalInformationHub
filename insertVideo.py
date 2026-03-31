@@ -20,9 +20,9 @@ def read_csv_insert_videoseg_no_header(file_path = "annotation-human/version2/tr
 
             original_row_number = i
             video_url = row[0]
-            state = row[1]
-            county = row[2]
-            meeting_date = row[3]
+            state = row[2]
+            county = row[3]
+            meeting_date = row[1]
             ai_mention_timestamp = row[4]
             segment_start = row[5]
             segment_end = row[6]
