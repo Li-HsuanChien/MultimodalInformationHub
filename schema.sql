@@ -24,8 +24,8 @@ CREATE TABLE VideoSegment (
 
 CREATE TABLE TCU (
     TCUID TEXT PRIMARY KEY,
+    VIDEOID TEXT NOT NULL,
     VIDEOSEGID TEXT NOT NULL,
-
     tcu_start TEXT,
     tcu_end TEXT,
     tcu_transcript TEXT,

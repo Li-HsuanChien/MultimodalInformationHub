@@ -59,18 +59,19 @@ def validate_duration(row):
     return True, "None"
 
 
-def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logger):
+def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logger, video_id):
     try:
         cursor.execute(
             """
             INSERT OR IGNORE INTO TCU (
-                TCUID, VIDEOSEGID,
+                TCUID, VIDEOID, VIDEOSEGID, 
                 tcu_start, tcu_end, tcu_transcript, tcu_adder_email,
                 video_saved, audio_saved, frames_saved
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tcu_id,
+                video_id,
                 videoseg_id,
                 getItem(row, "tcu_start",     "tcucsv"),
                 getItem(row, "tcu_end",       "tcucsv"),
@@ -204,7 +205,7 @@ def process_csv(user_email, alias, file_path, DB_PATH):
             videoseg_id   = build_videoseg_id(video_id, ai_mention_timestamp)
 
             # 5. Ensure TCU exists
-            insert_tcu_status, insert_tcu_count =  insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logger)
+            insert_tcu_status, insert_tcu_count =  insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logger, video_id)
             if not insert_tcu_status:
                 logger.error(f"[FAILED TO INSERT TCU] user_email={user_email} | TCU={tcu_id} | row {i} = {row}")
                 continue
