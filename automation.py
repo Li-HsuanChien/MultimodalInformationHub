@@ -67,7 +67,7 @@ def insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logge
                 TCUID, VIDEOID, VIDEOSEGID, 
                 tcu_start, tcu_end, tcu_transcript, tcu_adder_email,
                 video_saved, audio_saved, frames_saved
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tcu_id,
