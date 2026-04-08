@@ -162,7 +162,7 @@ def process_csv(user_email, alias, file_path, DB_PATH):
                     break
                 
             if video_url is None and missing_video_data:
-                logger.error(f"[MISSING VIDEOSEG DATA] user_email={user_email} | row {i} = {row}")
+                logger.error(f"[MISSING VIDEOSEG DATA] user_email={user_email} | row {i} ")
                 continue
             
             if not missing_video_data:
@@ -172,12 +172,12 @@ def process_csv(user_email, alias, file_path, DB_PATH):
             if missing_tcu_data:
                 continue
             if missing_video_data and missing_tcu_data:
-                logger.error(f"[MISSING FULL VIDEO INFO OR MISSING TCU INFO] user_email={user_email} | row {i} = {row}")
+                logger.error(f"[MISSING FULL VIDEO INFO OR MISSING TCU INFO] user_email={user_email} | row {i} ")
                 continue
             # 1. Check annotation type
             annotationtype = check_annotation_type(user_email, row)
             if annotationtype == "None" and not missing_tcu_data:
-                logger.warning(f"[MISSING ANNOTATION] user_email={user_email} | row {i} = {row}")
+                logger.warning(f"[MISSING ANNOTATION] user_email={user_email} | row {i}")
                 continue
 
             tcu_id = getItem(row, "tcu_id", "tcucsv")
@@ -195,9 +195,9 @@ def process_csv(user_email, alias, file_path, DB_PATH):
                 duration_valid, reason = validate_duration(row)
             if not duration_valid:
                 if reason == "FORMAT":
-                    logger.error(f"[INVALID TIME FORMAT] user_email={user_email} | row {i} = {row}")
+                    logger.error(f"[INVALID TIME FORMAT] user_email={user_email} | row {i} ")
                 elif reason == "DURATION":
-                    logger.error(f"[INVALID DURATION] user_email={user_email} | row {i} = {row}")
+                    logger.error(f"[INVALID DURATION] user_email={user_email} | row {i} ")
                 continue
 
             # 4. Resolve video / segment IDs
@@ -207,14 +207,14 @@ def process_csv(user_email, alias, file_path, DB_PATH):
             # 5. Ensure TCU exists
             insert_tcu_status, insert_tcu_count =  insert_tcu_if_not_exists(tcu_id, videoseg_id, row, cursor, user_email, logger, video_id)
             if not insert_tcu_status:
-                logger.error(f"[FAILED TO INSERT TCU] user_email={user_email} | TCU={tcu_id} | row {i} = {row}")
+                logger.error(f"[FAILED TO INSERT TCU] user_email={user_email} | TCU={tcu_id} | row {i} ")
                 continue
             tcu_count += insert_tcu_count
 
             # 6. Insert annotation
             annotation_id = f"{tcu_id}_{user_email}"
             if not insert_annotation(annotation_id, tcu_id, user_email, row, annotationtype, cursor, logger):
-                logger.error(f"[FAILED TO INSERT ANNOTATION] user_email={user_email} | TCU={tcu_id} | row {i} = {row}")
+                logger.error(f"[FAILED TO INSERT ANNOTATION] user_email={user_email} | TCU={tcu_id} | row {i} ")
                 continue
 
             annotation_count += 1
