@@ -44,14 +44,15 @@ def fetch_and_convert_files():
             print(f"Error occurred while fetching {user}'s combined file: {e}")
 
         if user in ["Kelly", "Swara", "Xinyu"]:
-            irr_file_url = os.getenv(f"{user}_IRR_URL")
+            irr_file_url = os.getenv(f"{user}_PARTNER_IRR_URL")
+           
             try:
                 if irr_file_url != "" and irr_file_url is not None:
                     response = requests.get(irr_file_url)
                     if response.status_code == 200:
                         with open(f"{getPartnerAlias(user)}_irr.xlsx", "wb") as f:
                             f.write(response.content)
-                        table_file_to_csv(f"{getPartnerAlias(user)}_irr.xlsx", f"{getPartnerAlias(user)}_irr.csv")
+                        table_file_to_csv(f"{getPartnerAlias(user)}_irr.xlsx", f"{file_dir}/{getPartnerAlias(user)}_irr.csv")
                         os.remove(f"{getPartnerAlias(user)}_irr.xlsx")
                         print(f"{user}'s irr file downloaded successfully.")
                     else:

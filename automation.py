@@ -16,10 +16,9 @@ from logger import get_logger
 def check_annotation_type(user_email, row):
     if user_email == "" or row is None:
         return "None"
-
     for annotationtypeOption in ["irr", "common"]:
         annotationtype = "None"
-
+        print("checking annotation type: " + annotationtypeOption)
         if annotationtypeOption == "irr" and user_email == "lxb5609@psu.edu":
             continue  # Luke does not have IRR fields
 
@@ -29,8 +28,7 @@ def check_annotation_type(user_email, row):
                 annotationtype = annotationtypeOption
                 break
         if annotationtype != "None":
-            break
-
+            return annotationtype #early return irr will be prioritized if both are present
     return annotationtype
 
 
@@ -466,28 +464,29 @@ if __name__ == "__main__":
         {"email": "jpg6390@psu.edu", "alias": "James", "partner": ""},
     ]
 
-    for user in users:
-        process_csv(
-            user["email"],
-            user["alias"],
-            f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv",
-            DB_PATH,
-        )
-        process_csv(
-            user["email"],
-            user["alias"],
-            f"annotation-human/version2/{user['alias']}/combined_all.csv",
-            DB_PATH,
-        )
-        if user["partner"] != "":
-            process_csv(
-                user["email"],
-                user["alias"],
-                f"annotation-human/version2/{user['alias']}/{user['alias']}_irr_file.csv",
-                DB_PATH,
-            )
+    # for user in users:
+    #     process_csv(
+    #         user["email"],
+    #         user["alias"],
+    #         f"annotation-human/version2/{user['alias']}/{user['alias']}_annotation_file.csv",
+    #         DB_PATH,
+    #     )
+    #     process_csv(
+    #         user["email"],
+    #         user["alias"],
+    #         f"annotation-human/version2/{user['alias']}/combined_all.csv",
+    #         DB_PATH,
+    #     )
+    #     if user["partner"] != "":
+    #         process_csv(
+    #             user["email"],
+    #             user["alias"],
+    #             f"annotation-human/version2/{user['alias']}/{user['partner']}_irr.csv",
+    #             DB_PATH,
+    #         )
     
-
+    process_csv("kkz5193@psu.edu", "Kelly", "annotation-human/version2/Kelly/Xinyu_irr.csv", DB_PATH)
+    exit()
     for user in users:
         distribute_files_to_user(user["email"], user["alias"], DB_PATH)
 
