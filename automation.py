@@ -23,7 +23,8 @@ def check_annotation_type(user_email, row):
 
         for field in getRequiredFields(user_email, annotationtypeOption):
             requiredItem = getItem(row, field, "tcucsv")
-            if (requiredItem is not None) and (requiredItem != "NA") and (requiredItem != ""):
+            codersnotes = getItem(row, "coder_notes", "tcucsv")
+            if (codersnotes is not None and codersnotes != "" and codersnotes != "NA") or ((requiredItem is not None) and (requiredItem != "NA") and (requiredItem != "")):
                 annotationtype = annotationtypeOption
                 break
         if annotationtype != "None":
