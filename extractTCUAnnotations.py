@@ -24,9 +24,7 @@ TCU_FIELDS = [
     "tcu_end",
     "tcu_transcript",
 ]
-
 ANNOTATION_FIELDS = [
-    "email",
     "speaker_role",
     "speaker_gender",
     "stance",
@@ -35,17 +33,15 @@ ANNOTATION_FIELDS = [
     "coder_notes",
 ]
 
-
 def export(db_path: str, out_path: str) -> None:
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
 
-    # Single JOIN query — DB handles filtering and joining,
-    # Python only needs to pivot the repeated annotation columns.
     tcu_cols = ", ".join(f't."{f}" AS "{f}"' for f in TCU_FIELDS)
-    ann_cols = ", ".join(f'a."{f}" AS "ann_{f}"' for f in ANNOTATION_FIELDS)    
+    ann_cols = ", ".join(f'a."{f}" AS "ann_{f}"' for f in ANNOTATION_FIELDS)
+
     query = f"""
-        SELECT {tcu_cols}, {ann_cols}
+        SELECT {tcu_cols}, {ann_cols}, a.Email AS ann_email
         FROM TCU t
         LEFT JOIN Annotation a
             ON t.TCUID = a.TCUID AND a.annotationtype = 'common'
@@ -82,6 +78,7 @@ def export(db_path: str, out_path: str) -> None:
         for f in ANNOTATION_FIELDS
     ]
     header = TCU_FIELDS + annotator_headers
+
     
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=header)
